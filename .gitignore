@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Data lake / local artifacts
+data/
+*.parquet
+
+# Env / secrets (free API keys still kept out of git)
+.env
+*.key
