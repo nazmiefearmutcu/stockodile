@@ -118,7 +118,7 @@ stream exists), `normalize` (raw → canonical), `backfill` (REST/historical). C
 | SEC EDGAR | — | — | — | — | — | ✅ | ✅ | ✅✅ | ✅✅ | — | ✅✅ | — | — |
 | FINRA | — | — | — | — | — | — | — | — | — | ✅✅ | — | — | — |
 | Alpaca (IEX-free) | ✅ | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — | — | ✅ | — |
-| Finnhub-free | ✅ | ✅ | ✅ | — | — | ✅ | — | ~ | — | — | — | — | — |
+| Finnhub-free | ✅ | ⛔ | ✅ | — | — | ✅ | — | ~ | — | — | — | — | — |
 | IEX (HIST/DEEP) | ~ | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — | — | — | — |
 | yfinance (Yahoo) | — | ✅ | — | — | — | ✅ | ✅ | ✅ | — | — | — | ✅✅ | ✅ |
 | Stooq | — | ✅✅ | — | — | — | ✅ | — | — | — | — | — | — | ✅ |
@@ -130,9 +130,28 @@ stream exists), `normalize` (raw → canonical), `backfill` (REST/historical). C
 | FRED | — | — | — | — | — | — | — | — | — | — | — | — | ✅✅ |
 | CBOE | — | ✅ | — | — | — | — | — | — | — | — | — | ✅ | ✅ |
 
-(`✅✅` = primary/authoritative source for that cell; `~` = limited.) Exact endpoints, auth,
-free-tier limits, and field mappings are pinned in the **research appendix** (must be
-verified before each provider is implemented).
+(`✅✅` = primary/authoritative source for that cell; `~` = limited; `⛔` = verified NOT
+free.) Exact endpoints, auth, free-tier limits, and field mappings are pinned in the
+**research appendix** (its corrected matrix, §4, is authoritative).
+
+**Verified corrections folded in from the appendix (honesty-critical):**
+- **Finnhub `/stock/candle` (OHLCV) is premium** → route OHLCV via Alpaca-IEX / Tiingo /
+  Polygon-free / Yahoo / Stooq, never Finnhub.
+- **No free equity L2 on Alpaca or Finnhub at any tier** — free depth-of-book exists *only*
+  via raw IEX DEEP (binary PCAP, T+1, IEX-venue).
+- **Alpaca free quotes are IEX BBO, not national NBBO** → every free quote row carries
+  `is_nbbo=false` / `is_consolidated=false`.
+- **FRED SP500 & DJIA are rolling ~10-yr only**; deep index history = NASDAQCOM (1971+) /
+  Cboe daily (VIX to 1990).
+- **Tradier sandbox Greeks/IV + index quotes are production-only** (sandbox Greeks
+  best-effort); free options-chain Greeks come from **Cboe** delayed snapshots.
+- **Alpha Vantage** free is 25 req/day (full daily history + historical index = premium);
+  long free history via weekly/monthly `_ADJUSTED`.
+- **Tiingo** free News/Fundamentals/dedicated corp-action endpoints are paid (corp actions
+  free only as inline `divCash`/`splitFactor`); 500-unique-symbols/month is the real cap.
+- **Dead, do not use:** IEX Cloud (iexcloud.io), api.iextrading.com REST, `pandas-datareader`
+  stooq reader, `alpaca-trade-api`. Stooq now gates CSV behind a JS proof-of-work + CAPTCHA
+  apikey.
 
 ## 7. Module tree (`src/stockodile/`)
 
