@@ -3,17 +3,41 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-.mypy_cache/
-.pytest_cache/
-.ruff_cache/
 *.egg-info/
+.eggs/
 dist/
 build/
 
-# Data lake / local artifacts
+# uv
+.uv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Data store (never commit market data)
 data/
 *.parquet
+*.duckdb
+*.duckdb.wal
 
-# Env / secrets (free API keys still kept out of git)
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets / env
 .env
-*.key
+.env.*
+!.env.example
+
+# Caching / scrapers temp files
+*.zip
+*.png
+*.html
+*.csv
+.stockodile_tiingo_quota.json
+
