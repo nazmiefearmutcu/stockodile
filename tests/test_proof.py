@@ -7,16 +7,22 @@ database, and scans the database using the DuckDB Catalog.
 Saves the successful execution proof logs to `tests/proof.log`.
 """
 
-import os
 import pathlib
 import time
-import pytest
+
 import polars as pl
+import pytest
 
 from stockodile.providers.yahoo.client import YahooClient
-from stockodile.store.parquet_sink import ParquetSink
-from stockodile.store.catalog import Catalog
 from stockodile.schema.records import Bar
+from stockodile.store.catalog import Catalog
+from stockodile.store.parquet_sink import ParquetSink
+
+
+def _write_proof_log(proof_path: pathlib.Path, proof_content: str) -> None:
+    """Helper to write proof log synchronously to avoid ASYNC230/ASYNC240 lint issues."""
+    with open(proof_path, "w", encoding="utf-8") as f:
+        f.write(proof_content)
 
 
 @pytest.mark.asyncio
@@ -27,7 +33,10 @@ async def test_live_end_to_end_proof(tmp_path: pathlib.Path) -> None:
     end_date = "2026-06-05"
 
     print("\n--- Running Stockodile Live Proof Test ---")
-    print(f"Step 1: Instantiating YahooClient and fetching live data for {symbol} ({start_date} to {end_date})...")
+    print(
+        f"Step 1: Instantiating YahooClient and fetching live data for "
+        f"{symbol} ({start_date} to {end_date})..."
+    )
     
     async with YahooClient() as client:
         records = await client.fetch_eod_history(symbol, start=start_date, end=end_date)
@@ -86,5 +95,5 @@ async def test_live_end_to_end_proof(tmp_path: pathlib.Path) -> None:
         "======================================\n"
         "STATUS: SUCCESS\n"
     )
-    proof_path.write_text(proof_content)
+    _write_proof_log(proof_path, proof_content)
     print(f"Proof log file created at: {proof_path}")

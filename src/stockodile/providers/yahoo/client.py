@@ -102,6 +102,14 @@ class YahooClient:
             raise_on_status=False,
         )
         session.mount("https://", HTTPAdapter(max_retries=retries))
+
+        # Enforce default timeout on all requests using this session to avoid hanging
+        orig_request = session.request
+        def request_with_timeout(*args: Any, **kwargs: Any) -> requests.Response:
+            kwargs.setdefault("timeout", 10.0)
+            return orig_request(*args, **kwargs)
+        session.request = request_with_timeout  # type: ignore
+
         return session
 
     def reset_session(self) -> None:
