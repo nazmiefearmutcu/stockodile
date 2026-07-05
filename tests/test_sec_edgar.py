@@ -167,7 +167,8 @@ async def test_get_fundamentals() -> None:
         assert len(facts_all) == 2
 
 
-def test_parse_company_facts_zip() -> None:
+@pytest.mark.asyncio
+async def test_parse_company_facts_zip() -> None:
     """Test parsing of bulk ZIP company facts."""
     mock_facts = {
         "cik": 320193,
@@ -204,7 +205,9 @@ def test_parse_company_facts_zip() -> None:
         with zipfile.ZipFile(zip_path, "w") as z:
             z.writestr("CIK0000320193.json", json.dumps(mock_facts))
 
-        fundamentals = list(client.parse_company_facts_zip(zip_path, deduplicate=True))
+        fundamentals = []
+        async for f in client.parse_company_facts_zip(zip_path, deduplicate=True):
+            fundamentals.append(f)
         assert len(fundamentals) == 1
         f = fundamentals[0]
         assert isinstance(f, Fundamental)

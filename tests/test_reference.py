@@ -171,7 +171,6 @@ def test_status_management_and_listing() -> None:
             master.update_security_status("UNKNOWN", is_active=True)
 
 
-
 def test_datetime_preservation() -> None:
     with SecurityMaster() as master:
         dt = datetime(2026, 6, 21, 12, 0, 0, tzinfo=UTC)
@@ -188,3 +187,83 @@ def test_datetime_preservation() -> None:
         assert retrieved is not None
         assert retrieved.created_at == dt
         assert retrieved.updated_at == dt
+
+
+def test_case_insensitive_lookups() -> None:
+    """Test case-insensitive lookups on symbols and tickers."""
+    with SecurityMaster() as master:
+        sec = Security(
+            symbol="AAPL",
+            ticker="AAPL",
+            exchange="NASDAQ",
+        )
+        master.register_security(sec)
+
+        # Test get_by_symbol case-insensitive
+        retrieved = master.get_by_symbol("aapl")
+        assert retrieved is not None
+        assert retrieved.symbol == "AAPL"
+
+        # Test resolve_ticker case-insensitive
+        assert master.resolve_ticker("aapl") == "AAPL"
+
+        # Test get_by_ticker case-insensitive
+        secs = master.get_by_ticker("aapl")
+        assert len(secs) == 1
+        assert secs[0].symbol == "AAPL"
+
+
+def test_register_security_exchange_update_on_conflict() -> None:
+    """Test that register_security updates the exchange mapping when it changes."""
+    with SecurityMaster() as master:
+        sec1 = Security(symbol="AAPL", ticker="AAPL", exchange="NASDAQ")
+        master.register_security(sec1)
+
+        # Mapping exchange should be NASDAQ
+        retrieved_mappings = master.get_ticker_mappings("AAPL")
+        assert len(retrieved_mappings) == 1
+        assert retrieved_mappings[0].exchange == "NASDAQ"
+
+        # Update security to NYSE
+        sec2 = Security(symbol="AAPL", ticker="AAPL", exchange="NYSE")
+        master.register_security(sec2)
+
+        # Mapping exchange should be updated to NYSE
+        retrieved_mappings = master.get_ticker_mappings("AAPL")
+        assert len(retrieved_mappings) == 1
+        assert retrieved_mappings[0].exchange == "NYSE"
+
+
+def test_instrument_registry_fallback() -> None:
+    """Test InstrumentRegistry fallback search using SecurityMaster."""
+    from stockodile.reference.registry import InstrumentRegistry
+
+    with SecurityMaster() as master:
+        sec = Security(
+            symbol="AAPL",
+            ticker="AAPL",
+            exchange="NASDAQ",
+            cik="0000320193",
+            figi="BBG000B9Y5M5",
+            cusip="037833100",
+        )
+        master.register_security(sec)
+
+        # Create registry with master
+        registry = InstrumentRegistry(security_master=master)
+
+        # Look up symbol not manually registered -> should fallback to master
+        inst = registry.by_symbol("AAPL")
+        assert inst is not None
+        assert inst.symbol == "AAPL"
+        assert inst.symbol_raw == "AAPL"
+        assert inst.exchange == "NASDAQ"
+        assert inst.cik == "0000320193"
+        assert inst.figi == "BBG000B9Y5M5"
+        assert inst.cusip == "037833100"
+
+        # Look up raw/ticker not manually registered -> should fallback to master
+        inst_raw = registry.by_raw("alpaca", "AAPL")
+        assert inst_raw is not None
+        assert inst_raw.symbol == "AAPL"
+        assert inst_raw.provider == "alpaca"

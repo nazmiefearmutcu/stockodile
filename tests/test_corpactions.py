@@ -35,7 +35,7 @@ def test_calculate_cumulative_factors_basic() -> None:
             local_ts=0,
             ex_date="2026-06-04",
             type=CorpActionType.SPLIT,
-            value=1.0,  # FACPR = 1.0 -> f = 2.0
+            value=2.0,  # split ratio = 2.0
         ),
         CorporateAction(
             provider="test",
@@ -78,7 +78,7 @@ def test_calculate_cumulative_factors_alternate_ex_date() -> None:
             local_ts=0,
             ex_date="2026-06-05",  # Split ex-date is Day 5
             type=CorpActionType.SPLIT,
-            value=1.0,  # f = 2.0
+            value=2.0,  # split ratio = 2.0
         )
     ]
 
@@ -103,11 +103,71 @@ def test_adjust_bars_and_returns() -> None:
     one_day_ms = 24 * 60 * 60 * 1000
 
     bars = [
-        Bar("test", "T", "T", base_ts, 0, "1d", 200.0, 200.0, 200.0, 200.0, 100.0),
-        Bar("test", "T", "T", base_ts + one_day_ms, 0, "1d", 210.0, 210.0, 210.0, 210.0, 100.0),
-        Bar("test", "T", "T", base_ts + 2 * one_day_ms, 0, "1d", 220.0, 220.0, 220.0, 220.0, 100.0),
-        Bar("test", "T", "T", base_ts + 3 * one_day_ms, 0, "1d", 104.0, 104.0, 104.0, 104.0, 200.0),
-        Bar("test", "T", "T", base_ts + 4 * one_day_ms, 0, "1d", 106.0, 106.0, 106.0, 106.0, 200.0),
+        Bar(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=base_ts,
+            source_ts=base_ts,
+            interval="1d",
+            open=200.0,
+            high=200.0,
+            low=200.0,
+            close=200.0,
+            volume=100.0,
+        ),
+        Bar(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=base_ts + one_day_ms,
+            source_ts=base_ts + one_day_ms,
+            interval="1d",
+            open=210.0,
+            high=210.0,
+            low=210.0,
+            close=210.0,
+            volume=100.0,
+        ),
+        Bar(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=base_ts + 2 * one_day_ms,
+            source_ts=base_ts + 2 * one_day_ms,
+            interval="1d",
+            open=220.0,
+            high=220.0,
+            low=220.0,
+            close=220.0,
+            volume=100.0,
+        ),
+        Bar(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=base_ts + 3 * one_day_ms,
+            source_ts=base_ts + 3 * one_day_ms,
+            interval="1d",
+            open=104.0,
+            high=104.0,
+            low=104.0,
+            close=104.0,
+            volume=200.0,
+        ),
+        Bar(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=base_ts + 4 * one_day_ms,
+            source_ts=base_ts + 4 * one_day_ms,
+            interval="1d",
+            open=106.0,
+            high=106.0,
+            low=106.0,
+            close=106.0,
+            volume=200.0,
+        ),
     ]
 
     dates = []
@@ -118,9 +178,23 @@ def test_adjust_bars_and_returns() -> None:
     # Event 1: 2:1 split on Day 4
     # Event 2: $0.50 cash dividend on Day 3
     actions = [
-        CorporateAction("test", "T", "T", None, 0, dates[3].isoformat(), CorpActionType.SPLIT, 1.0),
         CorporateAction(
-            "test", "T", "T", None, 0, dates[2].isoformat(), CorpActionType.DIVIDEND_CASH, 0.50
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=0,
+            ex_date=dates[3].isoformat(),
+            type=CorpActionType.SPLIT,
+            value=2.0,
+        ),
+        CorporateAction(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=0,
+            ex_date=dates[2].isoformat(),
+            type=CorpActionType.DIVIDEND_CASH,
+            value=0.50,
         ),
     ]
 
@@ -177,7 +251,7 @@ def test_adjust_dataframe() -> None:
         {
             "ex_date": ["2026-06-04", "2026-06-03"],
             "type": ["split", "dividend_cash"],
-            "value": [1.0, 0.50],  # raw FACPR (1.0 for 2:1 split)
+            "value": [2.0, 0.50],  # split ratio (2.0 for 2:1 split)
         }
     )
 
@@ -214,3 +288,73 @@ def test_adjust_dataframe() -> None:
     assert ret_vals[2] == pytest.approx(0.05)
     assert ret_vals[3] == pytest.approx(-0.05454545)
     assert ret_vals[4] == pytest.approx(0.01923076)
+
+
+def test_adjust_dataframe_multi_ticker() -> None:
+    # Test Polars DataFrame adjustment with multiple symbols
+    df = pl.DataFrame(
+        {
+            "symbol": ["AAPL", "AAPL", "AAPL", "MSFT", "MSFT", "MSFT"],
+            "date": [
+                "2026-06-01",
+                "2026-06-02",
+                "2026-06-03",
+                "2026-06-01",
+                "2026-06-02",
+                "2026-06-03",
+            ],
+            "open": [100.0, 110.0, 120.0, 200.0, 210.0, 220.0],
+            "high": [100.0, 110.0, 120.0, 200.0, 210.0, 220.0],
+            "low": [100.0, 110.0, 120.0, 200.0, 210.0, 220.0],
+            "close": [100.0, 110.0, 120.0, 200.0, 210.0, 220.0],
+            "volume": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+        }
+    )
+
+    actions = pl.DataFrame(schema={"ex_date": pl.String, "type": pl.String, "value": pl.Float64})
+
+    adj_df = adjust_dataframe(df, actions, base_date="2026-06-03")
+
+    ret_aapl = adj_df.filter(pl.col("symbol") == "AAPL")["total_return"].to_list()
+    ret_msft = adj_df.filter(pl.col("symbol") == "MSFT")["total_return"].to_list()
+
+    assert ret_aapl[0] is None
+    assert ret_aapl[1] == pytest.approx(0.1)
+    assert ret_aapl[2] == pytest.approx(0.09090909)
+
+    assert ret_msft[0] is None
+    assert ret_msft[1] == pytest.approx(0.05)
+    assert ret_msft[2] == pytest.approx(0.04761905)
+
+
+def test_malformed_dates() -> None:
+    # Malformed dates should be ignored or handled gracefully without raising Exceptions
+    dates = [
+        "2026-06-01",
+        "2026-06-32",  # malformed day
+        "not-a-date",  # completely invalid
+    ]
+    actions = [
+        CorporateAction(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=0,
+            ex_date="invalid-date",
+            type=CorpActionType.SPLIT,
+            value=2.0,
+        ),
+        CorporateAction(
+            provider="test",
+            symbol="T",
+            symbol_raw="T",
+            local_ts=0,
+            ex_date="2026-06-01",
+            type=CorpActionType.SPLIT,
+            value=2.0,
+        ),
+    ]
+
+    factors = calculate_cumulative_factors(actions, dates, base_date="invalid-base-date")
+    assert datetime.date(2026, 6, 1) in factors
+    assert len(factors) == 1

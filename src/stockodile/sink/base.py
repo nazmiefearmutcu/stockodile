@@ -28,4 +28,3 @@ class MemorySink(Sink):
 
     async def flush(self) -> None:
         pass
-

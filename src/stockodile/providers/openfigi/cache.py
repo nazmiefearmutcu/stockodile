@@ -62,8 +62,7 @@ class SQLiteCache:
     def _get_sync(self, key: str) -> str | None:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                "SELECT response_json FROM openfigi_cache WHERE cache_key = ?",
-                (key,)
+                "SELECT response_json FROM openfigi_cache WHERE cache_key = ?", (key,)
             )
             row = cursor.fetchone()
             return row[0] if row else None
@@ -72,7 +71,7 @@ class SQLiteCache:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO openfigi_cache (cache_key, response_json) VALUES (?, ?)",
-                (key, value_json)
+                (key, value_json),
             )
 
     async def get(self, job: OpenFigiJob) -> list[FigiRecord] | None:

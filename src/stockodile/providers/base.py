@@ -112,19 +112,18 @@ class Provider(ABC):
                 async for raw in transport:
                     # Use standard time_ns for local timestamp
                     import time
+
                     local_ts = time.time_ns()
                     try:
                         msg = json.loads(raw)
                     except Exception as exc:
                         tb = traceback.format_exc()
-                        await self._dlq.put(local_ts, raw, type(exc).__name__, tb)
+                        self._dlq.put(local_ts, raw, type(exc).__name__, tb)
                         log.debug("DLQ: unparseable frame: %s", exc)
                         continue
 
                     if isinstance(msg, dict) and msg.get("error") is not None:
-                        log.warning(
-                            "%s: provider rejected request: %s", self.name, msg["error"]
-                        )
+                        log.warning("%s: provider rejected request: %s", self.name, msg["error"])
                         continue
 
                     try:
@@ -132,7 +131,7 @@ class Provider(ABC):
                             await self.out.put(rec)
                     except Exception as exc:
                         tb = traceback.format_exc()
-                        await self._dlq.put(local_ts, raw, type(exc).__name__, tb)
+                        self._dlq.put(local_ts, raw, type(exc).__name__, tb)
                         log.debug("DLQ: normalize error: %s", exc)
 
                 # Transport exhausted normally (StopAsyncIteration) -> done

@@ -350,3 +350,158 @@ async def test_coordinator_intervals() -> None:
     assert semi_monthly_runs == [datetime.date(2026, 2, 17)]
     assert monthly_runs == [datetime.date(2026, 3, 2)]
     assert bi_monthly_runs == [datetime.date(2026, 3, 2)]
+
+
+def test_historical_holidays_awareness() -> None:
+    """Test that MLK Day is not a holiday before 1998
+    and Juneteenth is not a holiday before 2022.
+    """
+    cal = USMarketCalendar()
+    # 1995 MLK Day: 3rd Monday of Jan was Jan 16
+    assert not cal.is_holiday(datetime.date(1995, 1, 16))
+    # 2020 Juneteenth: June 19
+    assert not cal.is_holiday(datetime.date(2020, 6, 19))
+    # MLK Day in 2000 (after 1998)
+    assert cal.is_holiday(datetime.date(2000, 1, 17))
+    # Juneteenth in 2023 (after 2022)
+    assert cal.is_holiday(datetime.date(2023, 6, 19))
+
+
+def test_nth_weekday_of_month_bounds() -> None:
+    """Test that nth_weekday_of_month returns None for invalid or out-of-bound inputs."""
+    from stockodile.scheduler.calendar import nth_weekday_of_month
+
+    # 5th Monday of Jan 2026 (Jan 2026 has 4 Mondays: 5, 12, 19, 26)
+    assert nth_weekday_of_month(2026, 1, 0, 5) is None
+    # 0-th or negative weekday
+    assert nth_weekday_of_month(2026, 1, 0, 0) is None
+    assert nth_weekday_of_month(2026, 1, 0, -1) is None
+
+
+@pytest.mark.asyncio
+async def test_coordinator_contradiction_registration() -> None:
+    """Test that registering a task with during_hours policy
+    and run_on_non_trading_days=True raises ValueError.
+    """
+    coord = ScheduledPullCoordinator(InMemoryStateStore())
+    with pytest.raises(ValueError, match="Logical contradiction"):
+        coord.register_task(
+            "invalid_task",
+            lambda d: None,
+            policy="during_hours",
+            run_on_non_trading_days=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_coordinator_parameterless_bypass_catchup() -> None:
+    """Test that a task not accepting run_date parameter bypasses catchup."""
+    state = InMemoryStateStore()
+    coord = ScheduledPullCoordinator(state)
+    call_count = 0
+
+    async def no_param_task() -> None:
+        nonlocal call_count
+        call_count += 1
+
+    # Wed, Jan 7, 2026
+    start_time = datetime.datetime(2026, 1, 7, 18, 0, tzinfo=MARKET_TZ)
+    coord.register_task(
+        "no_param",
+        no_param_task,
+        interval="daily",
+        policy="after_hours",
+        start_date=datetime.date(2026, 1, 5),  # 2 days in the past
+    )
+
+    # First check: should run once for Jan 7, bypassing historical catch-up for Jan 5, 6
+    runs = await coord.check_and_run_once(start_time)
+    assert runs == 1
+    assert call_count == 1
+
+    # State updated to Jan 7
+    _, dt = state.get_last_run("no_param")
+    assert dt == datetime.date(2026, 1, 7)
+
+
+@pytest.mark.asyncio
+async def test_coordinator_first_run_full_catchup() -> None:
+    """Test that a newly registered task catches up day-by-day starting from start_date forward."""
+    state = InMemoryStateStore()
+    coord = ScheduledPullCoordinator(state)
+    executed_dates = []
+
+    def task_with_date(run_date: datetime.date) -> None:
+        executed_dates.append(run_date)
+
+    coord.register_task(
+        "catch_up",
+        task_with_date,
+        interval="daily",
+        policy="anytime",
+        start_date=datetime.date(2026, 1, 5),  # Monday
+    )
+
+    # Current time is Wed, Jan 7, 2026 at 12:00
+    now_time = datetime.datetime(2026, 1, 7, 12, 0, tzinfo=MARKET_TZ)
+
+    # First run: should execute oldest missed date (Jan 5)
+    runs = await coord.check_and_run_once(now_time)
+    assert runs == 1
+    assert executed_dates == [datetime.date(2026, 1, 5)]
+
+    # Second run: should execute next missed date (Jan 6)
+    runs = await coord.check_and_run_once(now_time)
+    assert runs == 1
+    assert executed_dates == [datetime.date(2026, 1, 5), datetime.date(2026, 1, 6)]
+
+    # Third run: should execute current date (Jan 7)
+    runs = await coord.check_and_run_once(now_time)
+    assert runs == 1
+    assert executed_dates == [
+        datetime.date(2026, 1, 5),
+        datetime.date(2026, 1, 6),
+        datetime.date(2026, 1, 7),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_task_retry_and_cooldown() -> None:
+    """Test task failure cooldown (5 min) and max retry limit (3)."""
+    state = InMemoryStateStore()
+    coord = ScheduledPullCoordinator(state)
+    run_count = 0
+
+    def failing_task(run_date: datetime.date) -> None:
+        nonlocal run_count
+        run_count += 1
+        raise RuntimeError("Task failed")
+
+    coord.register_task("failing", failing_task, interval="daily", policy="anytime")
+
+    now = datetime.datetime(2026, 1, 7, 12, 0, tzinfo=MARKET_TZ)
+
+    # 1st try: runs and fails
+    runs = await coord.check_and_run_once(now)
+    assert runs == 0
+    assert run_count == 1
+
+    # Immediate check (10s later): should skip due to 5-min cooldown
+    runs = await coord.check_and_run_once(now + datetime.timedelta(seconds=10))
+    assert runs == 0
+    assert run_count == 1
+
+    # Check after 5 minutes (301s later): runs and fails (2nd try)
+    runs = await coord.check_and_run_once(now + datetime.timedelta(seconds=301))
+    assert runs == 0
+    assert run_count == 2
+
+    # Check after another 5 minutes (602s later): runs and fails (3rd try)
+    runs = await coord.check_and_run_once(now + datetime.timedelta(seconds=602))
+    assert runs == 0
+    assert run_count == 3
+
+    # Check after another 5 minutes (903s later): should be permanently skipped (exceeded 3 retries)
+    runs = await coord.check_and_run_once(now + datetime.timedelta(seconds=903))
+    assert runs == 0
+    assert run_count == 3

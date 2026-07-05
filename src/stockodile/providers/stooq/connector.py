@@ -26,6 +26,16 @@ from stockodile.util.time import now_ns
 log = logging.getLogger(__name__)
 
 
+def _mine_pow(c: str, target_prefix: str) -> int:
+    n = 0
+    while True:
+        data = (c + str(n)).encode("utf-8")
+        h = hashlib.sha256(data).hexdigest()
+        if h.startswith(target_prefix):
+            return n
+        n += 1
+
+
 class StooqProvider(Provider):
     name = "stooq"
     ws_url = ""
@@ -48,6 +58,7 @@ class StooqProvider(Provider):
         self.captcha_service = captcha_service
         self.domain = domain
         self.session: aiohttp.ClientSession | None = None
+        self._zip_index: dict[str, dict[str, str]] = {}
 
     async def list_instruments(self) -> list[Instrument]:
         insts = []
@@ -82,7 +93,7 @@ class StooqProvider(Provider):
         zip_file_path = self._find_zip_file(symbol)
         if zip_file_path:
             log.info("Backfilling symbol %s from local ZIP file: %s", symbol, zip_file_path)
-            records = self._read_from_zip(zip_file_path, symbol, start_ns, end_ns)
+            records = await self._read_from_zip(zip_file_path, symbol, start_ns, end_ns)
             for rec in records:
                 yield rec
             return
@@ -119,7 +130,21 @@ class StooqProvider(Provider):
                     return os.path.join(self.zip_path, f)
         return None
 
-    def _read_from_zip(
+    async def _get_zip_index(self, zip_file_path: str) -> dict[str, str]:
+        if zip_file_path not in self._zip_index:
+
+            def _build_index() -> dict[str, str]:
+                idx = {}
+                with zipfile.ZipFile(zip_file_path) as z:
+                    for name in z.namelist():
+                        base = name.split("/")[-1].lower()
+                        idx[base] = name
+                return idx
+
+            self._zip_index[zip_file_path] = await asyncio.to_thread(_build_index)
+        return self._zip_index[zip_file_path]
+
+    async def _read_from_zip(
         self,
         zip_file_path: str,
         symbol: str,
@@ -127,23 +152,22 @@ class StooqProvider(Provider):
         end_ns: int,
     ) -> list[Record]:
         try:
-            with zipfile.ZipFile(zip_file_path) as z:
-                target_name = f"{symbol.lower()}.txt"
-                names = z.namelist()
-                matching = []
-                for name in names:
-                    base = name.split("/")[-1].lower()
-                    if base == target_name or base == f"^{target_name}":
-                        matching.append(name)
+            index = await self._get_zip_index(zip_file_path)
+            clean_sym = symbol.lower().replace("^", "")
+            target_name = f"{clean_sym}.txt"
 
-                if not matching:
-                    log.warning("Symbol %s not found in ZIP file: %s", symbol, zip_file_path)
-                    return []
+            matching_name = index.get(target_name) or index.get(f"^{target_name}")
+            if not matching_name:
+                log.warning("Symbol %s not found in ZIP file: %s", symbol, zip_file_path)
+                return []
 
-                with z.open(matching[0]) as f:
-                    csv_data = f.read()
+            def _read_data() -> bytes:
+                with zipfile.ZipFile(zip_file_path) as z:
+                    with z.open(matching_name) as f:
+                        return f.read()
 
-                return self._parse_csv(csv_data, symbol, start_ns, end_ns)
+            csv_data = await asyncio.to_thread(_read_data)
+            return self._parse_csv(csv_data, symbol, start_ns, end_ns)
         except Exception as e:
             log.error("Failed to read symbol %s from ZIP file %s: %s", symbol, zip_file_path, e)
             return []
@@ -153,19 +177,19 @@ class StooqProvider(Provider):
             await self.ensure_authenticated(symbol)
         except Exception as e:
             log.warning(
-                "Authentication failed during CSV download setup: %s. "
-                "Attempting anyway.",
+                "Authentication failed during CSV download setup: %s. Attempting anyway.",
                 e,
             )
 
         token = ""
         if self.session is not None:
             from urllib.parse import unquote
+
             cookies = self.session.cookie_jar.filter_cookies(URL(f"https://{self.domain}"))
             cookie_user = cookies.get("cookie_user")
             if cookie_user:
                 val = unquote(cookie_user.value)
-                m = re.search(r'\?([^|]+)\|', val)
+                m = re.search(r"\?([^|]+)\|", val)
                 if m:
                     token = m.group(1)
 
@@ -185,8 +209,7 @@ class StooqProvider(Provider):
         data = await resp.read()
         if b"Access denied" in data or b"Odmowa" in data or b"verify your browser" in data:
             log.error(
-                "Access denied downloading Stooq CSV for %s. "
-                "Response starts with: %r",
+                "Access denied downloading Stooq CSV for %s. Response starts with: %r",
                 symbol,
                 data[:100],
             )
@@ -201,7 +224,7 @@ class StooqProvider(Provider):
             url = f"https://{self.domain}/db/h/"
 
         # Fetch page to handle PoW/initialize session
-        await self._request("GET", url)
+        (await self._request("GET", url)).close()
 
         # Download CAPTCHA image
         img_url = f"https://{self.domain}/q/l/s/i/"
@@ -234,19 +257,27 @@ class StooqProvider(Provider):
         submit_res = await submit_resp.text()
         if submit_res != "1":
             raise RuntimeError(
-                f"CAPTCHA verification failed. Entered code: {code}, "
-                f"response: {submit_res}"
+                f"CAPTCHA verification failed. Entered code: {code}, response: {submit_res}"
             )
 
         # Propagate cookies by requesting the target page again
-        await self._request("GET", url)
+        (await self._request("GET", url)).close()
 
     async def _solve_captcha_manual(self, img_bytes: bytes) -> str:
-        captcha_path = os.path.join(os.getcwd(), "captcha.png")
+        import tempfile
+
+        if not sys.stdin.isatty():
+            raise RuntimeError(
+                "Non-interactive terminal detected. Cannot prompt for manual CAPTCHA entry."
+            )
+
+        tmp_file = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        captcha_path = tmp_file.name
         try:
+
             def _write_file() -> None:
-                with open(captcha_path, "wb") as f:
-                    f.write(img_bytes)
+                tmp_file.write(img_bytes)
+                tmp_file.close()
 
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, _write_file)
@@ -261,9 +292,16 @@ class StooqProvider(Provider):
         except Exception as e:
             log.error("Failed manual CAPTCHA prompt: %s", e)
             raise
+        finally:
+            if os.path.exists(captcha_path):  # noqa: ASYNC240
+                try:
+                    os.unlink(captcha_path)
+                except Exception:
+                    pass
 
     async def solve_captcha_2captcha(self, api_key: str, img_bytes: bytes) -> str:
         import base64
+
         img_b64 = base64.b64encode(img_bytes).decode("utf-8")
         url_in = "http://2captcha.com/in.php"
         data = {
@@ -272,27 +310,54 @@ class StooqProvider(Provider):
             "body": img_b64,
             "json": 1,
         }
-        async with aiohttp.ClientSession() as solver_session:
-            async with solver_session.post(url_in, json=data) as resp:
-                res_json = await resp.json()
+        session = self._get_session()
+        timeout = aiohttp.ClientTimeout(total=15.0)
+        try:
+            async with session.post(url_in, json=data, timeout=timeout) as resp:
+                if resp.status != 200:
+                    body_text = await resp.text()
+                    raise RuntimeError(
+                        f"2captcha error: HTTP status {resp.status}, response: {body_text[:100]}"
+                    )
+                try:
+                    res_json = await resp.json()
+                except aiohttp.ContentTypeError as err:
+                    body_text = await resp.text()
+                    raise RuntimeError(
+                        f"2captcha returned non-JSON content: {body_text[:100]}"
+                    ) from err
                 if res_json.get("status") != 1:
                     raise RuntimeError(f"2captcha error: {res_json.get('request')}")
                 task_id = res_json["request"]
+        except Exception as e:
+            if not isinstance(e, RuntimeError):
+                raise RuntimeError(f"2captcha communication failed: {e}") from e
+            raise
 
-            url_res = "http://2captcha.com/res.php"
-            for _ in range(30):
-                await asyncio.sleep(5)
-                params = {"key": api_key, "action": "get", "id": task_id, "json": 1}
-                async with solver_session.get(url_res, params=params) as res_resp:
-                    res_json = await res_resp.json()
+        url_res = "http://2captcha.com/res.php"
+        for _ in range(30):
+            await asyncio.sleep(5)
+            params = {"key": api_key, "action": "get", "id": task_id, "json": 1}
+            try:
+                async with session.get(url_res, params=params, timeout=timeout) as res_resp:
+                    if res_resp.status != 200:
+                        continue
+                    try:
+                        res_json = await res_resp.json()
+                    except aiohttp.ContentTypeError:
+                        continue
                     if res_json.get("status") == 1:
                         return str(res_json["request"])
                     if res_json.get("request") != "CAPCHA_NOT_READY":
                         raise RuntimeError(f"2captcha error: {res_json.get('request')}")
+            except Exception as e:
+                log.warning("2captcha polling request failed: %s", e)
+                continue
         raise RuntimeError("2captcha solution timeout")
 
     async def solve_captcha_anticaptcha(self, api_key: str, img_bytes: bytes) -> str:
         import base64
+
         img_b64 = base64.b64encode(img_bytes).decode("utf-8")
         url_in = "https://api.anti-captcha.com/createTask"
         data = {
@@ -300,25 +365,51 @@ class StooqProvider(Provider):
             "task": {
                 "type": "ImageToTextTask",
                 "body": img_b64,
-            }
+            },
         }
-        async with aiohttp.ClientSession() as solver_session:
-            async with solver_session.post(url_in, json=data) as resp:
-                res_json = await resp.json()
+        session = self._get_session()
+        timeout = aiohttp.ClientTimeout(total=15.0)
+        try:
+            async with session.post(url_in, json=data, timeout=timeout) as resp:
+                if resp.status != 200:
+                    body_text = await resp.text()
+                    raise RuntimeError(
+                        f"anticaptcha error: HTTP status {resp.status}, response: {body_text[:100]}"
+                    )
+                try:
+                    res_json = await resp.json()
+                except aiohttp.ContentTypeError as err:
+                    body_text = await resp.text()
+                    raise RuntimeError(
+                        f"anticaptcha returned non-JSON content: {body_text[:100]}"
+                    ) from err
                 if res_json.get("errorId", 0) != 0:
                     raise RuntimeError(f"anticaptcha error: {res_json.get('errorDescription')}")
                 task_id = res_json["taskId"]
+        except Exception as e:
+            if not isinstance(e, RuntimeError):
+                raise RuntimeError(f"anticaptcha communication failed: {e}") from e
+            raise
 
-            url_res = "https://api.anti-captcha.com/getTaskResult"
-            for _ in range(30):
-                await asyncio.sleep(5)
-                payload = {"clientKey": api_key, "taskId": task_id}
-                async with solver_session.post(url_res, json=payload) as res_resp:
-                    res_json = await res_resp.json()
+        url_res = "https://api.anti-captcha.com/getTaskResult"
+        for _ in range(30):
+            await asyncio.sleep(5)
+            payload = {"clientKey": api_key, "taskId": task_id}
+            try:
+                async with session.post(url_res, json=payload, timeout=timeout) as res_resp:
+                    if res_resp.status != 200:
+                        continue
+                    try:
+                        res_json = await res_resp.json()
+                    except aiohttp.ContentTypeError:
+                        continue
                     if res_json.get("errorId", 0) != 0:
                         raise RuntimeError(f"anticaptcha error: {res_json.get('errorDescription')}")
                     if res_json.get("status") == "ready":
                         return str(res_json["solution"]["text"])
+            except Exception as e:
+                log.warning("anticaptcha polling request failed: %s", e)
+                continue
         raise RuntimeError("anticaptcha solution timeout")
 
     async def _solve_pow(self, url: str, body: str, session: aiohttp.ClientSession) -> None:
@@ -327,29 +418,18 @@ class StooqProvider(Provider):
             return
         c = match.group(1)
         target_prefix = "0" * 4
-        n = 0
-        while True:
-            data = (c + str(n)).encode("utf-8")
-            h = hashlib.sha256(data).hexdigest()
-            if h.startswith(target_prefix):
-                break
-            n += 1
+
+        n = await asyncio.to_thread(_mine_pow, c, target_prefix)
 
         verify_url = str(URL(url).with_path("/__verify"))
-        headers = {
-            "Referer": url,
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
+        headers = {"Referer": url, "Content-Type": "application/x-www-form-urlencoded"}
         async with session.post(verify_url, data={"c": c, "n": str(n)}, headers=headers) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Proof-of-Work verification failed with status {resp.status}")
             await resp.text()
 
-    async def _request(
-        self,
-        method: str,
-        url: str,
-        **kwargs: Any,
-    ) -> aiohttp.ClientResponse:
-        if self.session is None:
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self.session is None or self.session.closed:
             headers = {
                 "User-Agent": (
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -357,17 +437,33 @@ class StooqProvider(Provider):
                 ),
                 "Accept-Language": "en-US,en;q=0.9",
             }
-            self.session = aiohttp.ClientSession(headers=headers)
+            timeout = aiohttp.ClientTimeout(total=60.0, connect=10.0, sock_read=30.0)
+            self.session = aiohttp.ClientSession(headers=headers, timeout=timeout)
+        return self.session
 
-        session = self.session
-        for _ in range(5):
-            resp = await session.request(method, url, **kwargs)
-            if resp.status == 200 and "text/html" in resp.headers.get("Content-Type", "").lower():
-                body = await resp.text()
-                if "verify your browser" in body or "const c=" in body:
-                    await self._solve_pow(url, body, session)
-                    continue
-            return resp
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        **kwargs: Any,
+    ) -> aiohttp.ClientResponse:
+        session = self._get_session()
+        for attempt in range(5):
+            try:
+                resp = await session.request(method, url, **kwargs)
+                content_type = resp.headers.get("Content-Type", "").lower()
+                if resp.status == 200 and "text/html" in content_type:
+                    body = await resp.text()
+                    if "verify your browser" in body or "const c=" in body:
+                        resp.close()
+                        await self._solve_pow(url, body, session)
+                        continue
+                return resp
+            except aiohttp.ClientError as e:
+                log.warning("Stooq request failed (attempt %d/5): %s", attempt + 1, e)
+                if attempt == 4:
+                    raise
+                await asyncio.sleep(1.0 * (2**attempt))
         raise RuntimeError("Max Proof-of-Work solve attempts exceeded")
 
     def _parse_csv(

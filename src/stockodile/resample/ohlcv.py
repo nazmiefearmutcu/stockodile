@@ -39,9 +39,7 @@ def _build_no_fill_sql(interval_sql: str, interval_label: str) -> str:
     )
 
 
-def _build_fill_sql(
-    interval_sql: str, interval_label: str, start_ns: int, end_ns: int
-) -> str:
+def _build_fill_sql(interval_sql: str, interval_label: str, start_ns: int, end_ns: int) -> str:
     """Return the fill-enabled SQL."""
     return (
         "WITH\n"
@@ -130,12 +128,32 @@ def resample_ohlcv(
 # ---------------------------------------------------------------------------
 
 
+def _detect_scale_and_adjust_interval(ts: int, interval_ns: int) -> int:
+    """Detect timestamp unit and return adjusted_interval in the same unit.
+
+    If ts is a small offset or mock timestamp (ts < 1e11), we default to nanoseconds.
+    Otherwise, we use the epoch ranges:
+    - ts > 1e17: nanoseconds
+    - 1e14 < ts <= 1e17: microseconds
+    - 1e11 < ts <= 1e14: milliseconds
+    """
+    if ts < 1e11:
+        return interval_ns
+    elif ts > 1e17:  # nanoseconds
+        return interval_ns
+    elif ts > 1e14:  # microseconds
+        return max(1, interval_ns // 1000)
+    else:  # milliseconds
+        return max(1, interval_ns // 1_000_000)
+
+
 def resample_trades_to_bars(trades: Iterable[Trade], interval: str) -> Iterator[Bar]:
     """Resample an iterable of Trade records into Bar records.
 
     Assumes Trade records are ordered by local_ts.
     """
     interval_ns, _, interval_label = _parse_interval(interval)
+    adjusted_interval: int | None = None
 
     current_bucket: int | None = None
     open_px = 0.0
@@ -150,13 +168,25 @@ def resample_trades_to_bars(trades: Iterable[Trade], interval: str) -> Iterator[
     symbol = ""
     symbol_raw = ""
 
+    previous_ts: int | None = None
+
     for trade in trades:
+        if previous_ts is not None and trade.local_ts < previous_ts:
+            raise ValueError(
+                f"Unsorted stream: trade local_ts {trade.local_ts} "
+                f"is less than previous_ts {previous_ts}"
+            )
+        previous_ts = trade.local_ts
+
         if not provider:
             provider = trade.provider
             symbol = trade.symbol
             symbol_raw = trade.symbol_raw
 
-        bucket = (trade.local_ts // interval_ns) * interval_ns
+        if adjusted_interval is None:
+            adjusted_interval = _detect_scale_and_adjust_interval(trade.local_ts, interval_ns)
+
+        bucket = (trade.local_ts // adjusted_interval) * adjusted_interval
 
         if current_bucket is None:
             current_bucket = bucket
@@ -227,6 +257,7 @@ def resample_quotes_to_bars(
     Assumes Quote records are ordered by local_ts.
     """
     interval_ns, _, interval_label = _parse_interval(interval)
+    adjusted_interval: int | None = None
 
     current_bucket: int | None = None
     open_px = 0.0
@@ -241,13 +272,25 @@ def resample_quotes_to_bars(
     symbol = ""
     symbol_raw = ""
 
+    previous_ts: int | None = None
+
     for quote in quotes:
+        if previous_ts is not None and quote.local_ts < previous_ts:
+            raise ValueError(
+                f"Unsorted stream: quote local_ts {quote.local_ts} "
+                f"is less than previous_ts {previous_ts}"
+            )
+        previous_ts = quote.local_ts
+
         if not provider:
             provider = quote.provider
             symbol = quote.symbol
             symbol_raw = quote.symbol_raw
 
-        bucket = (quote.local_ts // interval_ns) * interval_ns
+        if adjusted_interval is None:
+            adjusted_interval = _detect_scale_and_adjust_interval(quote.local_ts, interval_ns)
+
+        bucket = (quote.local_ts // adjusted_interval) * adjusted_interval
 
         if price_type == "mid":
             price = (quote.bid_px + quote.ask_px) / 2.0
@@ -324,6 +367,7 @@ def resample_bars_to_bars(bars: Iterable[Bar], interval: str) -> Iterator[Bar]:
     Assumes Bar records are ordered by local_ts.
     """
     interval_ns, _, interval_label = _parse_interval(interval)
+    adjusted_interval: int | None = None
 
     current_bucket: int | None = None
     open_px = 0.0
@@ -339,13 +383,25 @@ def resample_bars_to_bars(bars: Iterable[Bar], interval: str) -> Iterator[Bar]:
     symbol = ""
     symbol_raw = ""
 
+    previous_ts: int | None = None
+
     for bar in bars:
+        if previous_ts is not None and bar.local_ts < previous_ts:
+            raise ValueError(
+                f"Unsorted stream: bar local_ts {bar.local_ts} "
+                f"is less than previous_ts {previous_ts}"
+            )
+        previous_ts = bar.local_ts
+
         if not provider:
             provider = bar.provider
             symbol = bar.symbol
             symbol_raw = bar.symbol_raw
 
-        bucket = (bar.local_ts // interval_ns) * interval_ns
+        if adjusted_interval is None:
+            adjusted_interval = _detect_scale_and_adjust_interval(bar.local_ts, interval_ns)
+
+        bucket = (bar.local_ts // adjusted_interval) * adjusted_interval
 
         if current_bucket is None:
             current_bucket = bucket
@@ -412,9 +468,7 @@ def resample_bars_to_bars(bars: Iterable[Bar], interval: str) -> Iterator[Bar]:
 
     if current_bucket is not None:
         vwap = (
-            (vwap_vol_sum / volume)
-            if volume > 0
-            else (vwap_vol_sum if vwap_vol_sum > 0 else None)
+            (vwap_vol_sum / volume) if volume > 0 else (vwap_vol_sum if vwap_vol_sum > 0 else None)
         )
         yield Bar(
             provider=provider,
@@ -462,9 +516,9 @@ def resample_trades_df(df: pl.DataFrame, interval: str) -> pl.DataFrame:
     _ns, _sql, polars_str = _parse_interval(interval)
     interval_label = interval.strip().lower()
 
-    df_dt = df.with_columns(
-        pl.from_epoch("local_ts", time_unit="ns").alias("datetime")
-    ).sort("datetime")
+    df_dt = df.with_columns(pl.from_epoch("local_ts", time_unit="ns").alias("datetime")).sort(
+        "datetime"
+    )
 
     group_keys = [k for k in ["symbol", "provider", "symbol_raw"] if k in df.columns]
 
@@ -511,9 +565,7 @@ def resample_trades_df(df: pl.DataFrame, interval: str) -> pl.DataFrame:
     return resampled.select(out_cols)
 
 
-def resample_quotes_df(
-    df: pl.DataFrame, interval: str, price_type: str = "mid"
-) -> pl.DataFrame:
+def resample_quotes_df(df: pl.DataFrame, interval: str, price_type: str = "mid") -> pl.DataFrame:
     """Resample quotes DataFrame using Polars.
 
     Expects columns: local_ts, bid_px, ask_px, and optionally symbol, provider, symbol_raw.
@@ -546,9 +598,9 @@ def resample_quotes_df(
     else:
         raise ValueError(f"Unknown price_type: {price_type!r}")
 
-    df_dt = df.with_columns(
-        pl.from_epoch("local_ts", time_unit="ns").alias("datetime")
-    ).sort("datetime")
+    df_dt = df.with_columns(pl.from_epoch("local_ts", time_unit="ns").alias("datetime")).sort(
+        "datetime"
+    )
 
     group_keys = [k for k in ["symbol", "provider", "symbol_raw"] if k in df.columns]
 
@@ -620,9 +672,9 @@ def resample_bars_df(df: pl.DataFrame, interval: str) -> pl.DataFrame:
     if "local_ts" not in df.columns and "bar" in df.columns:
         df = df.with_columns(pl.col("bar").alias("local_ts"))
 
-    df_dt = df.with_columns(
-        pl.from_epoch("local_ts", time_unit="ns").alias("datetime")
-    ).sort("datetime")
+    df_dt = df.with_columns(pl.from_epoch("local_ts", time_unit="ns").alias("datetime")).sort(
+        "datetime"
+    )
 
     group_keys = [k for k in ["symbol", "provider", "symbol_raw"] if k in df.columns]
 

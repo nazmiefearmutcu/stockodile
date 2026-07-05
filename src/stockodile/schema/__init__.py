@@ -28,6 +28,7 @@ from stockodile.schema.records import (
     ShortInterest,
     ShortVolume,
     Trade,
+    TradingStatus,
 )
 
 __all__ = [
@@ -58,4 +59,5 @@ __all__ = [
     "Side",
     "Tape",
     "Trade",
+    "TradingStatus",
 ]

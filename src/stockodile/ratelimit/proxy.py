@@ -1,6 +1,9 @@
 import json
 import logging
 import os
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -21,6 +24,7 @@ class ProxyRotator:
         config_path: str | Path | None = None,
         env_var: str = "STOCKODILE_PROXIES",
         env_file_var: str = "STOCKODILE_PROXY_FILE",
+        time_func: Callable[[], float] = time.monotonic,
     ) -> None:
         """Initialize the ProxyRotator.
 
@@ -28,7 +32,13 @@ class ProxyRotator:
             config_path: Path to configuration file containing proxies.
             env_var: Environment variable holding comma-separated or JSON list of proxies.
             env_file_var: Environment variable pointing to a configuration file path.
+            time_func: Function providing current time in seconds.
         """
+        self._lock = threading.Lock()
+        self._time_func = time_func
+        self._consecutive_failures: dict[str, int] = {}
+        self._failed_until: dict[str, float] = {}
+
         self.proxies: list[str] = []
         self._current_idx: int = 0
 
@@ -44,8 +54,24 @@ class ProxyRotator:
         if not self.proxies and os.environ.get(env_var):
             self._load_from_env_var(os.environ[env_var])
 
-        # Clean/strip proxies
-        self.proxies = [p.strip() for p in self.proxies if p.strip()]
+        # Clean/strip proxies & validate schemes
+        valid_proxies = []
+        for p in self.proxies:
+            p_clean = p.strip()
+            if not p_clean:
+                continue
+            if not (
+                p_clean.startswith("http://")
+                or p_clean.startswith("https://")
+                or p_clean.startswith("socks5://")
+                or p_clean.startswith("socks4://")
+            ):
+                raise ValueError(
+                    f"Invalid proxy URL: '{p_clean}'. "
+                    "Scheme must be http, https, socks4, or socks5."
+                )
+            valid_proxies.append(p_clean)
+        self.proxies = valid_proxies
 
     def _load_from_file(self, path: Path) -> None:
         if not path.exists():
@@ -88,17 +114,43 @@ class ProxyRotator:
                 pass
         self.proxies = [p.strip() for p in value.split(",") if p.strip()]
 
+    def is_proxy_failed(self, proxy: str) -> bool:
+        """Check if a proxy is currently marked as failed (in cooldown)."""
+        with self._lock:
+            p = proxy.strip()
+            now = self._time_func()
+            until = self._failed_until.get(p, 0.0)
+            return now < until
+
     def get_proxy(self) -> str | None:
         """Get the current active proxy, or None if no proxies are configured."""
-        if not self.proxies:
-            return None
-        return self.proxies[self._current_idx % len(self.proxies)]
+        with self._lock:
+            if not self.proxies:
+                return None
+
+            now = self._time_func()
+            num_proxies = len(self.proxies)
+
+            for i in range(num_proxies):
+                idx = (self._current_idx + i) % num_proxies
+                proxy = self.proxies[idx]
+                until = self._failed_until.get(proxy, 0.0)
+                if now >= until:
+                    self._current_idx = idx
+                    return proxy
+
+            # Fallback: all proxies failed, pick the one that will be available earliest
+            best_proxy = min(self.proxies, key=lambda pr: self._failed_until.get(pr, 0.0))
+            self._current_idx = self.proxies.index(best_proxy)
+            return best_proxy
 
     def rotate(self) -> str | None:
         """Rotate to the next proxy and return it."""
-        if not self.proxies:
-            return None
-        self._current_idx = (self._current_idx + 1) % len(self.proxies)
+        with self._lock:
+            if not self.proxies:
+                return None
+            self._current_idx = (self._current_idx + 1) % len(self.proxies)
+
         proxy = self.get_proxy()
         logger.info("Rotated to next proxy: %s", proxy)
         return proxy
@@ -106,11 +158,35 @@ class ProxyRotator:
     def report_failure(self, proxy: str) -> None:
         """Report a failure or timeout for a specific proxy.
 
-        If the failed proxy is the current one, triggers rotation.
+        Applies an exponential backoff cooldown to the proxy and rotates if it was the current one.
         """
-        if not self.proxies:
-            return
+        p = proxy.strip()
+        with self._lock:
+            if not self.proxies or p not in self.proxies:
+                return
+
+            now = self._time_func()
+            failures = self._consecutive_failures.get(p, 0) + 1
+            self._consecutive_failures[p] = failures
+            backoff = min(60.0, 2.0**failures)
+            self._failed_until[p] = now + backoff
+
+            logger.warning(
+                "Proxy failed: %s (consecutive failures: %d). Backing off for %.1fs.",
+                p,
+                failures,
+                backoff,
+            )
+
         current = self.get_proxy()
-        if current == proxy.strip():
-            logger.warning("Proxy failed: %s. Rotating proxy.", proxy)
+        if current == p:
             self.rotate()
+
+    def report_success(self, proxy: str) -> None:
+        """Report a successful request using a specific proxy."""
+        p = proxy.strip()
+        with self._lock:
+            if p in self._consecutive_failures:
+                self._consecutive_failures[p] = 0
+            if p in self._failed_until:
+                self._failed_until[p] = 0.0

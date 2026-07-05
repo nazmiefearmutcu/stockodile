@@ -37,7 +37,7 @@ async def test_live_end_to_end_proof(tmp_path: pathlib.Path) -> None:
         f"Step 1: Instantiating YahooClient and fetching live data for "
         f"{symbol} ({start_date} to {end_date})..."
     )
-    
+
     async with YahooClient() as client:
         records = await client.fetch_eod_history(symbol, start=start_date, end=end_date)
 
@@ -54,14 +54,14 @@ async def test_live_end_to_end_proof(tmp_path: pathlib.Path) -> None:
     sink = ParquetSink(data_dir=tmp_path, max_buffer_rows=1000, flush_interval_seconds=9999)
     for record in records:
         await sink.put(record)
-    
+
     await sink.flush()
     print("Result: Parquet files flushed successfully.")
 
     # 3. Instantiate DuckDB Catalog over the written Parquet database and query it
     print("Step 3: Instantiating Catalog and running DuckDB scans...")
     catalog = Catalog(data_dir=tmp_path)
-    
+
     # Get bounds
     min_ts = min(r.local_ts for r in records)
     max_ts = max(r.local_ts for r in records)

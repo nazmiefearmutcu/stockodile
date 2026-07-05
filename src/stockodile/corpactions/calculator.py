@@ -1,6 +1,7 @@
 """Corporate action price/volume adjustment calculator following CRSP formulas."""
 
 import datetime
+import logging
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -9,6 +10,23 @@ import polars as pl
 
 from stockodile.schema.enums import CorpActionType
 from stockodile.schema.records import Bar, CorporateAction
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_date_safe(d: Any) -> datetime.date | None:
+    if isinstance(d, datetime.date):
+        return d
+    if isinstance(d, datetime.datetime):
+        return d.date()
+    if not isinstance(d, str):
+        logger.warning("Invalid date format or type: %s", d)
+        return None
+    try:
+        return datetime.date.fromisoformat(d)
+    except ValueError:
+        logger.warning("Malformed date string: %s", d)
+        return None
 
 
 def calculate_cumulative_factors(
@@ -29,30 +47,28 @@ def calculate_cumulative_factors(
         A dictionary mapping each date (as datetime.date) to a tuple of (CFACPR, CFACSHR).
     """
     # 1. Parse and sort all unique dates
-    parsed_dates = sorted(
-        {d if isinstance(d, datetime.date) else datetime.date.fromisoformat(d) for d in dates}
-    )
+    parsed_dates_raw = {_parse_date_safe(d) for d in dates}
+    parsed_dates = sorted({d for d in parsed_dates_raw if d is not None})
 
     if not parsed_dates:
         return {}
 
     # 2. Determine base date
     if base_date is None:
-        base_dt = parsed_dates[-1]
-    elif isinstance(base_date, datetime.date):
-        base_dt = base_date
+        base_dt = parsed_dates[-1] if parsed_dates else datetime.date.today()
     else:
-        base_dt = datetime.date.fromisoformat(base_date)
+        parsed_base = _parse_date_safe(base_date)
+        if parsed_base is not None:
+            base_dt = parsed_base
+        else:
+            base_dt = parsed_dates[-1] if parsed_dates else datetime.date.today()
 
     # 3. Group actions by ex_date and calculate daily multiplier f
     actions_by_date = defaultdict(list)
     for act in actions:
-        ex_dt = (
-            act.ex_date
-            if isinstance(act.ex_date, datetime.date)
-            else datetime.date.fromisoformat(act.ex_date)
-        )
-        actions_by_date[ex_dt].append(act)
+        ex_dt = _parse_date_safe(act.ex_date)
+        if ex_dt is not None:
+            actions_by_date[ex_dt].append(act)
 
     # Calculate raw cumulative factors walking backward from the maximum date.
     desc_dates = sorted(parsed_dates, reverse=True)
@@ -72,8 +88,12 @@ def calculate_cumulative_factors(
             for act in actions_by_date[d]:
                 f_pr = 1.0
                 f_shr = 1.0
-                if act.type in (CorpActionType.SPLIT, CorpActionType.DIVIDEND_STOCK):
-                    # CRSP split factor: f = FACPR + 1
+                if act.type == CorpActionType.SPLIT:
+                    # Real-world providers (Yahoo, MSN, Tiingo) return the split ratio
+                    # directly (e.g., 2.0 for a 2-for-1 split).
+                    f_pr = act.value
+                    f_shr = act.value
+                elif act.type == CorpActionType.DIVIDEND_STOCK:
                     f_pr = act.value + 1.0
                     f_shr = act.value + 1.0
                 elif act.type == CorpActionType.SPINOFF:
@@ -171,12 +191,9 @@ def calculate_total_returns(
     cash_divs: dict[datetime.date, float] = defaultdict(float)
     for act in actions:
         if act.type == CorpActionType.DIVIDEND_CASH:
-            ex_dt = (
-                act.ex_date
-                if isinstance(act.ex_date, datetime.date)
-                else datetime.date.fromisoformat(act.ex_date)
-            )
-            cash_divs[ex_dt] += act.value
+            ex_dt = _parse_date_safe(act.ex_date)
+            if ex_dt is not None:
+                cash_divs[ex_dt] += act.value
 
     returns: list[float | None] = [None]
 
@@ -314,13 +331,16 @@ def adjust_dataframe(
     for item in cash_div_list:
         cash_div_grouped[item["ex_date"]] += item["div_cash"]
 
-    cash_div_rows = [
-        {
-            "_parsed_date": datetime.date.fromisoformat(k),
-            "div_cash": v,
-        }
-        for k, v in cash_div_grouped.items()
-    ]
+    cash_div_rows = []
+    for k, v in cash_div_grouped.items():
+        parsed_k = _parse_date_safe(k)
+        if parsed_k is not None:
+            cash_div_rows.append(
+                {
+                    "_parsed_date": parsed_k,
+                    "div_cash": v,
+                }
+            )
 
     if not cash_div_rows:
         div_df = pl.DataFrame(schema={"_parsed_date": pl.Date, "div_cash": pl.Float64})
@@ -347,17 +367,28 @@ def adjust_dataframe(
         (pl.col("volume") * pl.col("cfacshr")).alias("adj_volume"),
     )
 
-    # Sort by date ascending to calculate returns
-    res_df = res_df.sort("_parsed_date")
+    # Sort by date ascending to calculate returns (by symbol and date if symbol exists)
+    sort_cols = ["_parsed_date"]
+    if "symbol" in res_df.columns:
+        sort_cols = ["symbol", "_parsed_date"]
+    res_df = res_df.sort(sort_cols)
 
     # Calculate adjusted dividend cash: adj_div = div_cash / cfacpr
     res_df = res_df.with_columns((pl.col("div_cash") / pl.col("cfacpr")).alias("adj_div_cash"))
 
+    # Shift over symbol if it exists to avoid multi-ticker return corruption
+    if "symbol" in res_df.columns:
+        prev_close = pl.col("adj_close").shift(1).over("symbol")
+    else:
+        prev_close = pl.col("adj_close").shift(1)
+
     # TotalReturn(t) = (adj_close(t) + adj_div_cash(t)) / adj_close(t-1) - 1
+    # Check for division by zero
     res_df = res_df.with_columns(
-        ((pl.col("adj_close") + pl.col("adj_div_cash")) / pl.col("adj_close").shift(1) - 1.0).alias(
-            "total_return"
-        )
+        pl.when(prev_close.is_not_null() & (prev_close != 0.0))
+        .then((pl.col("adj_close") + pl.col("adj_div_cash")) / prev_close - 1.0)
+        .otherwise(None)
+        .alias("total_return")
     )
 
     res_df = res_df.drop(["_parsed_date", "adj_div_cash"])

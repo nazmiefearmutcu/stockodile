@@ -272,3 +272,235 @@ async def test_msn_money_close() -> None:
     await provider.close()
     mock_session.close.assert_called_once()
     assert provider.session is None
+
+
+@pytest.mark.asyncio
+async def test_msn_money_split_parsing_ratios() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["corp_actions"],
+        out=sink,
+        registry=registry,
+    )
+
+    mock_session = MagicMock()
+
+    # Test 3:2 and 1:5 splits
+    def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        resp = MagicMock()
+        resp.status = 200
+        if "Query" in url:
+            stock_aapl = '{"RT00S": "AAPL", "SecId": "12345"}'
+            resp.json = AsyncMock(return_value={"data": {"stocks": [stock_aapl]}})
+        elif "QuoteSummary" in url:
+            resp.json = AsyncMock(
+                return_value=[
+                    {
+                        "equity": {
+                            "shareStatistics": {
+                                "lastSplitFactor": "3:2",
+                                "lastSplitDate": "2026-06-21T00:00:00Z",
+                            }
+                        }
+                    }
+                ]
+            )
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=None)
+        return resp
+
+    mock_session.get.side_effect = mock_get
+    provider.session = mock_session
+
+    start_ns = 1781913600000000000
+    end_ns = 1782086400000000000
+
+    # 3:2 split should yield 1.5
+    actions_3_2 = []
+    async for rec in provider.backfill("corp_action", "AAPL", start_ns, end_ns):
+        actions_3_2.append(rec)
+    assert len(actions_3_2) == 1
+    act_3_2 = actions_3_2[0]
+    assert isinstance(act_3_2, CorporateAction)
+    assert act_3_2.value == 1.5
+
+    # 1:5 split should yield 0.2
+    def mock_get_1_5(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        resp = MagicMock()
+        resp.status = 200
+        if "Query" in url:
+            stock_aapl = '{"RT00S": "AAPL", "SecId": "12345"}'
+            resp.json = AsyncMock(return_value={"data": {"stocks": [stock_aapl]}})
+        elif "QuoteSummary" in url:
+            resp.json = AsyncMock(
+                return_value=[
+                    {
+                        "equity": {
+                            "shareStatistics": {
+                                "lastSplitFactor": "1:5",
+                                "lastSplitDate": "2026-06-21T00:00:00Z",
+                            }
+                        }
+                    }
+                ]
+            )
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=None)
+        return resp
+
+    mock_session.get.side_effect = mock_get_1_5
+    actions_1_5 = []
+    async for rec in provider.backfill("corp_action", "AAPL", start_ns, end_ns):
+        actions_1_5.append(rec)
+    assert len(actions_1_5) == 1
+    act_1_5 = actions_1_5[0]
+    assert isinstance(act_1_5, CorporateAction)
+    assert act_1_5.value == 0.2
+
+
+@pytest.mark.asyncio
+async def test_msn_money_autosuggest_class_suffixes() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["RDS.A"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+
+    mock_session = MagicMock()
+    mock_suggest_resp = MagicMock()
+    mock_suggest_resp.status = 200
+    # Bing returns suggestion RDS.A and RDS.B
+    mock_suggest_resp.json = AsyncMock(
+        return_value={
+            "data": {
+                "stocks": [
+                    '{"RT00S": "RDS.B", "SecId": "54321"}',
+                    '{"RT00S": "RDS.A", "SecId": "12345"}',
+                ]
+            }
+        }
+    )
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_suggest_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    provider.session = mock_session
+    sec_id = await provider._resolve_sec_id("RDS.A")
+    # Should match RDS.A and return 12345 (instead of 54321 fallback because of mismatch)
+    assert sec_id == "12345"
+
+
+@pytest.mark.asyncio
+async def test_msn_money_float_conversion_vulnerability() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+
+    mock_session = MagicMock()
+
+    # Mock data returning None, "N/A", empty string for price arrays
+    def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        resp = MagicMock()
+        resp.status = 200
+        if "Query" in url:
+            stock_aapl = '{"RT00S": "AAPL", "SecId": "12345"}'
+            resp.json = AsyncMock(return_value={"data": {"stocks": [stock_aapl]}})
+        elif "Charts" in url:
+            resp.json = AsyncMock(
+                return_value=[
+                    {
+                        "series": {
+                            "openPrices": [None],
+                            "prices": ["N/A"],
+                            "pricesHigh": [""],
+                            "pricesLow": ["150.0"],
+                            "volumes": ["10,000"],
+                            "timeStamps": ["2026-06-20T12:00:00Z"],
+                        }
+                    }
+                ]
+            )
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=None)
+        return resp
+
+    mock_session.get.side_effect = mock_get
+    provider.session = mock_session
+
+    start_ns = 1781913600000000000
+    end_ns = 1782000000000000000
+
+    bars = []
+    async for rec in provider.backfill("bar", "AAPL", start_ns, end_ns):
+        bars.append(rec)
+
+    bar = bars[0]
+    assert isinstance(bar, Bar)
+    assert bar.open == 0.0
+    assert bar.close == 0.0
+    assert bar.high == 0.0
+    assert bar.low == 150.0
+    assert bar.volume == 10000.0
+
+
+@pytest.mark.asyncio
+async def test_msn_money_response_error_handling() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+
+    # 1. Non-200 suggest response
+    mock_session = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status = 404
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+    provider.session = mock_session
+    sec_id = await provider._resolve_sec_id("AAPL")
+    assert sec_id == "aapl"
+
+    # 2. Chart JSON returns list with None [None]
+    def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        resp = MagicMock()
+        resp.status = 200
+        if "Query" in url:
+            resp.json = AsyncMock(return_value={"data": {"stocks": []}})
+        elif "Charts" in url:
+            resp.json = AsyncMock(return_value=[None])
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=None)
+        return resp
+
+    mock_session.get.side_effect = mock_get
+    bars = []
+    async for rec in provider.backfill("bar", "AAPL", 0, 999999999999999999):
+        bars.append(rec)
+    assert len(bars) == 0  # didn't throw TypeError, just cleanly skipped
+
+
+@pytest.mark.asyncio
+async def test_msn_money_run_not_implemented() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+    with pytest.raises(NotImplementedError):
+        await provider.run()

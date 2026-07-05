@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -317,3 +318,186 @@ async def test_google_finance_run() -> None:
 
     # The record should be in the sink
     assert sink.records == [trade_rec]
+
+
+@pytest.mark.asyncio
+async def test_google_finance_caching_and_fallbacks() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = GoogleFinanceProvider(
+        symbols=["IBM"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+    )
+
+    # 1st call: AAPL:NASDAQ fails (404), AAPL:NYSE succeeds
+    mock_resp_fail = MagicMock()
+    mock_resp_fail.status = 404
+
+    mock_resp_success = MagicMock()
+    mock_resp_success.status = 200
+    html_success = "<html><body><div class='N6SYTe'>$123.45</div></body></html>"
+    mock_resp_success.text = AsyncMock(return_value=html_success)
+
+    mock_session = MagicMock()
+
+    # Track the calls to session.get
+    called_urls = []
+
+    def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        called_urls.append(url)
+        resp = MagicMock()
+        if "IBM:NASDAQ" in url:
+            resp.status = 404
+        else:
+            resp.status = 200
+            html_success = "<html><body><div class='N6SYTe'>$123.45</div></body></html>"
+            resp.text = AsyncMock(return_value=html_success)
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=None)
+        return resp
+
+    mock_session.get.side_effect = mock_get
+    provider.session = mock_session
+
+    records = await provider._scrape_symbol("IBM")
+    assert len(records) > 0
+    assert provider._resolved_symbol_cache["IBM"] == "IBM:NYSE"
+    assert "quote/IBM:NASDAQ" in called_urls[0]
+    assert "quote/IBM:NYSE" in called_urls[1]
+
+    # 2nd call: should hit the cache immediately and skip NASDAQ
+    called_urls.clear()
+    records2 = await provider._scrape_symbol("IBM")
+    assert len(records2) > 0
+    assert len(called_urls) == 1
+    assert "quote/IBM:NYSE" in called_urls[0]
+
+    # Invalidate: mock success fails now
+    called_urls.clear()
+
+    def mock_get_new(url: str, *args: Any, **kwargs: Any) -> MagicMock:
+        called_urls.append(url)
+        resp = MagicMock()
+        if "IBM:NYSE" in url:
+            # Let the cached symbol fail
+            resp.status = 404
+        else:
+            resp.status = 200
+            html_success = "<html><body><div class='N6SYTe'>$123.45</div></body></html>"
+            resp.text = AsyncMock(return_value=html_success)
+        resp.__aenter__ = AsyncMock(return_value=resp)
+        resp.__aexit__ = AsyncMock(return_value=None)
+        return resp
+
+    mock_session.get.side_effect = mock_get_new
+    records3 = await provider._scrape_symbol("IBM")
+    # Cached NYSE failed -> fell back to IBM:NASDAQ (which succeeded) -> cached NASDAQ
+    assert len(records3) > 0
+    assert provider._resolved_symbol_cache["IBM"] == "IBM:NASDAQ"
+
+
+@pytest.mark.asyncio
+async def test_google_finance_currencies_and_timestamps() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = GoogleFinanceProvider(
+        symbols=["AAPL"],
+        channels=["trade", "fundamental"],
+        out=sink,
+        registry=registry,
+    )
+
+    mock_html = """
+    <html>
+        <body>
+            <div class="YMlKec">€123.45</div>
+            <div class="yg51Tc" data-last-normal-market-timestamp="1781913600"></div>
+            <div>
+                <div class="SwQK7">Open</div>
+                <div class="dO6ijd">€120.00</div>
+            </div>
+        </body>
+    </html>
+    """
+
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.text = AsyncMock(return_value=mock_html)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    provider.session = mock_session
+    records = await provider._scrape_symbol("AAPL")
+
+    assert len(records) > 0
+    trade = next(r for r in records if isinstance(r, Trade))
+    assert trade.price == 123.45
+    assert trade.source_ts == 1781913600000000000
+
+    # Test "As of" fuzzy parsing
+    mock_html_fuzzy = """
+    <html>
+        <body>
+            <div class="fxKbKc">£89.90</div>
+            <div>As of Jul 3, 2026, 5:10 PM UTC</div>
+        </body>
+    </html>
+    """
+    mock_resp_fuzzy = MagicMock()
+    mock_resp_fuzzy.status = 200
+    mock_resp_fuzzy.text = AsyncMock(return_value=mock_html_fuzzy)
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp_fuzzy)
+
+    records_fuzzy = await provider._scrape_symbol("AAPL")
+    assert len(records_fuzzy) > 0
+    trade_fuzzy = next(r for r in records_fuzzy if isinstance(r, Trade))
+    assert trade_fuzzy.price == 89.90
+    assert trade_fuzzy.source_ts is not None
+
+
+@pytest.mark.asyncio
+async def test_google_finance_key_value_misalignment() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = GoogleFinanceProvider(
+        symbols=["AAPL"],
+        channels=["fundamental"],
+        out=sink,
+        registry=registry,
+    )
+
+    # Key "Mkt. cap" has no value element inside its parent or sibling
+    # Key "Open" has a value. Misalignment should not occur.
+    mock_html = """
+    <html>
+        <body>
+            <div class="N6SYTe">$100.00</div>
+            <div>
+                <div class="SwQK7">Mkt. cap</div>
+            </div>
+            <div>
+                <div class="SwQK7">Open</div>
+                <div class="dO6ijd">$150.00</div>
+            </div>
+        </body>
+    </html>
+    """
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.text = AsyncMock(return_value=mock_html)
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+
+    provider.session = mock_session
+    records = await provider._scrape_symbol("AAPL")
+
+    fundamentals = [r for r in records if isinstance(r, Fundamental)]
+    assert len(fundamentals) == 1
+    assert fundamentals[0].tag == "open"
+    assert fundamentals[0].val == 150.0

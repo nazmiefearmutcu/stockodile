@@ -17,11 +17,11 @@ def calculate_simple_returns(prices: np.ndarray) -> np.ndarray: ...
 
 
 @overload
-def calculate_simple_returns(prices: Sequence[float]) -> list[float]: ...
+def calculate_simple_returns(prices: Sequence[float | None]) -> list[float]: ...
 
 
 def calculate_simple_returns(
-    prices: pl.Series | np.ndarray | Sequence[float],
+    prices: pl.Series | np.ndarray | Sequence[float | None],
 ) -> pl.Series | np.ndarray | list[float]:
     """Calculate simple returns from a sequence of prices.
 
@@ -48,10 +48,11 @@ def calculate_simple_returns(
         res = [float("nan")]
         for i in range(1, n):
             prev = prices[i - 1]
-            if prev == 0.0 or math.isnan(prev):
+            curr = prices[i]
+            if prev is None or curr is None or prev == 0.0 or math.isnan(prev) or math.isnan(curr):
                 res.append(float("nan"))
             else:
-                res.append((prices[i] - prev) / prev)
+                res.append((curr - prev) / prev)
         return res
 
 
@@ -64,11 +65,11 @@ def calculate_log_returns(prices: np.ndarray) -> np.ndarray: ...
 
 
 @overload
-def calculate_log_returns(prices: Sequence[float]) -> list[float]: ...
+def calculate_log_returns(prices: Sequence[float | None]) -> list[float]: ...
 
 
 def calculate_log_returns(
-    prices: pl.Series | np.ndarray | Sequence[float],
+    prices: pl.Series | np.ndarray | Sequence[float | None],
 ) -> pl.Series | np.ndarray | list[float]:
     """Calculate log returns from a sequence of prices.
 
@@ -95,7 +96,14 @@ def calculate_log_returns(
         for i in range(1, n):
             prev = prices[i - 1]
             curr = prices[i]
-            if prev <= 0.0 or curr <= 0.0 or math.isnan(prev) or math.isnan(curr):
+            if (
+                prev is None
+                or curr is None
+                or prev <= 0.0
+                or curr <= 0.0
+                or math.isnan(prev)
+                or math.isnan(curr)
+            ):
                 res.append(float("nan"))
             else:
                 res.append(math.log(curr / prev))

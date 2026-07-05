@@ -25,10 +25,13 @@ from __future__ import annotations
 
 import datetime
 import glob as _glob
+import threading
 from pathlib import Path
 
 import duckdb
 import polars as pl
+
+from stockodile.store.rows import _symbol_bucket
 
 
 class Catalog:
@@ -40,11 +43,18 @@ class Catalog:
 
     def __init__(self, data_dir: Path | str) -> None:
         self._data_dir = Path(data_dir)
+        self._lock = threading.Lock()
+        self._thread_local = threading.local()
         # In-memory DuckDB connection.
         self._conn = duckdb.connect()
         self._registered_channels: set[str] = set()
         # Register views for all channels present on disk.
         self._refresh_views()
+
+    def _get_conn(self) -> duckdb.DuckDBPyConnection:
+        if not hasattr(self._thread_local, "conn"):
+            self._thread_local.conn = self._conn.cursor()
+        return self._thread_local.conn  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Public API
@@ -63,7 +73,8 @@ class Catalog:
         """
         # Refresh views so newly written files are picked up.
         self._refresh_views()
-        result = self._conn.execute(sql)
+        conn = self._get_conn()
+        result = conn.execute(sql)
         df = result.pl()
         return df
 
@@ -91,7 +102,7 @@ class Catalog:
             no rows match.
         """
         # Build narrow glob paths by date.
-        glob_paths = self._build_date_globs(channel, start_ns, end_ns)
+        glob_paths = self._build_date_globs(channel, start_ns, end_ns, symbol)
 
         if not glob_paths:
             return pl.DataFrame()
@@ -114,7 +125,8 @@ class Catalog:
               AND local_ts <= ?
             ORDER BY local_ts
         """
-        result = self._conn.execute(sql, [symbol, start_ns, end_ns])
+        conn = self._get_conn()
+        result = conn.execute(sql, [symbol, start_ns, end_ns])
         df = result.pl()
         if len(df) == 0:
             return pl.DataFrame()
@@ -131,28 +143,29 @@ class Catalog:
 
     def refresh_views(self) -> None:
         """Re-scan the data directory and re-register channel views."""
-        self._refresh_views()
+        self._refresh_views(force=True)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _refresh_views(self) -> None:
+    def _refresh_views(self, force: bool = False) -> None:
         """Scan data_dir for channel directories and create/replace views."""
-        channel_dir = self._data_dir
-        if not channel_dir.exists():
-            return
+        with self._lock:
+            channel_dir = self._data_dir
+            if not channel_dir.exists():
+                return
 
-        # Discover channels from directory names ``channel=<name>``.
-        for provider_dir in channel_dir.iterdir():
-            if not provider_dir.is_dir() or not provider_dir.name.startswith("provider="):
-                continue
-            for chan_dir in provider_dir.iterdir():
-                if not chan_dir.is_dir() or not chan_dir.name.startswith("channel="):
+            # Discover channels from directory names ``channel=<name>``.
+            for provider_dir in channel_dir.iterdir():
+                if not provider_dir.is_dir() or not provider_dir.name.startswith("provider="):
                     continue
-                channel = chan_dir.name[len("channel="):]
-                if channel not in self._registered_channels:
-                    self._create_view(channel)
+                for chan_dir in provider_dir.iterdir():
+                    if not chan_dir.is_dir() or not chan_dir.name.startswith("channel="):
+                        continue
+                    channel = chan_dir.name[len("channel=") :]
+                    if force or channel not in self._registered_channels:
+                        self._create_view(channel)
 
     def _create_view(self, channel: str) -> None:
         """Register a DuckDB VIEW named after the channel.
@@ -160,47 +173,52 @@ class Catalog:
         The glob covers all providers and all dates for that channel so that
         ``query("SELECT … FROM trade")`` works without extra parameters.
         """
+        patterns: list[str] = []
         # Determine if bucketed or non-bucketed layout is used on disk.
-        channel_dirs = list(self._data_dir.glob(f"provider=*/channel={channel}"))
-        has_buckets = False
-        for chan_dir in channel_dirs:
-            if list(chan_dir.glob("date=*/bucket=*")):
-                has_buckets = True
-                break
+        pattern_bucket = str(
+            self._data_dir
+            / "provider=*"
+            / f"channel={channel}"
+            / "date=*"
+            / "bucket=*"
+            / "part-*.parquet"
+        )
+        pattern_nobucket = str(
+            self._data_dir / "provider=*" / f"channel={channel}" / "date=*" / "part-*.parquet"
+        )
 
-        if has_buckets:
-            glob_pattern = str(
-                self._data_dir
-                / "provider=*"
-                / f"channel={channel}"
-                / "date=*"
-                / "bucket=*"
-                / "part-*.parquet"
-            )
+        if _glob.glob(pattern_bucket):
+            patterns.append(pattern_bucket)
+        if _glob.glob(pattern_nobucket):
+            patterns.append(pattern_nobucket)
+
+        if not patterns:
+            return
+
+        escaped_patterns = [p.replace("'", "''") for p in patterns]
+        if len(escaped_patterns) == 1:
+            paths_literal = f"'{escaped_patterns[0]}'"
         else:
-            glob_pattern = str(
-                self._data_dir
-                / "provider=*"
-                / f"channel={channel}"
-                / "date=*"
-                / "part-*.parquet"
-            )
+            paths_literal = ", ".join(f"'{p}'" for p in escaped_patterns)
+            paths_literal = f"[{paths_literal}]"
 
-        escaped_glob = glob_pattern.replace("'", "''")
         escaped_channel = channel.replace("'", "''")
         sql = f"""
             CREATE OR REPLACE VIEW "{escaped_channel}" AS
             SELECT * FROM read_parquet(
-                '{escaped_glob}',
+                {paths_literal},
                 hive_partitioning => true,
                 union_by_name => true
             )
         """
-        self._conn.execute(sql)
-        self._registered_channels.add(channel)
+        try:
+            self._conn.execute(sql)
+            self._registered_channels.add(channel)
+        except Exception:
+            pass
 
     def _build_date_globs(
-        self, channel: str, start_ns: int, end_ns: int
+        self, channel: str, start_ns: int, end_ns: int, symbol: str | None = None
     ) -> list[str]:
         """Return concrete glob patterns narrowed to dates in [start_ns, end_ns]."""
         channel_dirs = list(self._data_dir.glob(f"provider=*/channel={channel}"))
@@ -208,15 +226,22 @@ class Catalog:
             return []
 
         # Compute the set of dates covered by [start_ns, end_ns].
-        dates = _ns_range_to_dates(start_ns, end_ns)
+        dates = set(_ns_range_to_dates(start_ns, end_ns))
 
         globs: list[str] = []
         for chan_dir in channel_dirs:
-            for date_str in dates:
-                date_dir = chan_dir / f"date={date_str}"
-                if date_dir.exists():
+            for date_dir in chan_dir.iterdir():
+                if not date_dir.is_dir() or not date_dir.name.startswith("date="):
+                    continue
+                date_str = date_dir.name[len("date=") :]
+                if date_str in dates:
                     # 1. Bucket pattern
-                    pattern_bucket = str(date_dir / "bucket=*" / "part-*.parquet")
+                    if symbol is not None:
+                        bucket = _symbol_bucket(symbol)
+                        pattern_bucket = str(date_dir / f"bucket={bucket}" / "part-*.parquet")
+                    else:
+                        pattern_bucket = str(date_dir / "bucket=*" / "part-*.parquet")
+
                     if _glob.glob(pattern_bucket):
                         globs.append(pattern_bucket)
                         continue

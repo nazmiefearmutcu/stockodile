@@ -119,3 +119,106 @@ async def test_token_bucket_fifo_order() -> None:
 
     await asyncio.gather(task1, task2, task3)
     assert results == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_token_bucket_non_head_waiter_cancellation() -> None:
+    bucket = TokenBucket(capacity=1.0, refill_rate=1.0, initial_tokens=0.0)
+
+    task1 = asyncio.create_task(bucket.acquire(1.0))
+    await asyncio.sleep(0.01)
+    task2 = asyncio.create_task(bucket.acquire(1.0))
+    await asyncio.sleep(0.01)
+    task3 = asyncio.create_task(bucket.acquire(1.0))
+    await asyncio.sleep(0.01)
+
+    assert len(bucket._waiters) == 3
+
+    task2.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task2
+
+    await asyncio.sleep(0.01)
+
+    assert len(bucket._waiters) == 2
+    assert not bucket._waiters[0][1].done()
+    assert not bucket._waiters[1][1].done()
+
+    task1.cancel()
+    task3.cancel()
+    try:
+        await task1
+    except asyncio.CancelledError:
+        pass
+    try:
+        await task3
+    except asyncio.CancelledError:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_token_bucket_greedy_allocation() -> None:
+    bucket = TokenBucket(capacity=5.0, refill_rate=10.0, initial_tokens=2.0, greedy=True)
+
+    results = []
+
+    async def worker(worker_id: int, tokens: float) -> None:
+        await bucket.acquire(tokens)
+        results.append(worker_id)
+
+    task1 = asyncio.create_task(worker(1, 5.0))
+    await asyncio.sleep(0.01)
+    task2 = asyncio.create_task(worker(2, 1.0))
+    await asyncio.sleep(0.01)
+
+    await task2
+    assert results == [2]
+
+    task1.cancel()
+    try:
+        await task1
+    except asyncio.CancelledError:
+        pass
+
+
+def test_token_bucket_multi_loop_concurrency() -> None:
+    import threading
+
+    bucket = TokenBucket(capacity=10.0, refill_rate=100.0, initial_tokens=10.0)
+
+    loop1 = asyncio.new_event_loop()
+    loop2 = asyncio.new_event_loop()
+
+    results = []
+
+    def run_loop1() -> None:
+        asyncio.set_event_loop(loop1)
+
+        async def work() -> None:
+            await bucket.acquire(5.0)
+            results.append("loop1")
+
+        loop1.run_until_complete(work())
+
+    def run_loop2() -> None:
+        asyncio.set_event_loop(loop2)
+
+        async def work() -> None:
+            await bucket.acquire(5.0)
+            results.append("loop2")
+
+        loop2.run_until_complete(work())
+
+    t1 = threading.Thread(target=run_loop1)
+    t2 = threading.Thread(target=run_loop2)
+
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert set(results) == {"loop1", "loop2"}
+    assert bucket.tokens == pytest.approx(0.0, abs=0.5)
+
+    loop1.close()
+    loop2.close()

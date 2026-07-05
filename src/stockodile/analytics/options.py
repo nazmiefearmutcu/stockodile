@@ -41,14 +41,27 @@ def bsm_price(
     if opt_type_lower not in ("call", "c", "put", "p"):
         raise ValueError("option_type must be 'call'/'c' or 'put'/'p'")
 
-    if t <= 0.0:
+    if s < 0.0:
+        raise ValueError("Stock price (s) must be non-negative")
+    if k < 0.0:
+        raise ValueError("Strike price (k) must be non-negative")
+    if t < 0.0:
+        raise ValueError("Time to maturity (t) must be non-negative")
+
+    if t == 0.0:
         if opt_type_lower in ("call", "c"):
             return max(0.0, s - k)
         else:
             return max(0.0, k - s)
 
-    if s <= 0.0 or k <= 0.0:
+    if s == 0.0:
         return 0.0
+
+    if k == 0.0:
+        if opt_type_lower in ("call", "c"):
+            return s * math.exp(-q * t)
+        else:
+            return 0.0
 
     if sigma <= 0.0:
         call_val = s * math.exp(-q * t) - k * math.exp(-r * t)
@@ -95,8 +108,23 @@ def bsm_greeks(
     if opt_type_lower not in ("call", "c", "put", "p"):
         raise ValueError("option_type must be 'call'/'c' or 'put'/'p'")
 
-    if t <= 0.0 or s <= 0.0 or k <= 0.0 or sigma <= 0.0:
+    if s < 0.0:
+        raise ValueError("Stock price (s) must be non-negative")
+    if k < 0.0:
+        raise ValueError("Strike price (k) must be non-negative")
+    if t < 0.0:
+        raise ValueError("Time to maturity (t) must be non-negative")
+
+    if t == 0.0 or s == 0.0 or k == 0.0 or sigma <= 0.0:
         is_call = opt_type_lower in ("call", "c")
+        if k == 0.0 and s > 0.0 and t > 0.0:
+            return {
+                "delta": math.exp(-q * t) if is_call else 0.0,
+                "gamma": 0.0,
+                "theta": -q * s * math.exp(-q * t) if is_call else 0.0,
+                "vega": 0.0,
+                "rho": 0.0,
+            }
         return {
             "delta": 1.0 if (is_call and s > k) else (-1.0 if (not is_call and s < k) else 0.0),
             "gamma": 0.0,
@@ -290,4 +318,7 @@ def bsm_implied_volatility(
 
         sigma = 0.5 * (low_sigma + high_sigma)
 
-    return sigma
+    final_price = bsm_price(s, k, t, r, sigma, q, opt_type_lower)
+    if abs(final_price - price) < tolerance:
+        return sigma
+    return float("nan")

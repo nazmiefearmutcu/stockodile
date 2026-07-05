@@ -41,3 +41,6 @@ data/
 *.csv
 .stockodile_tiingo_quota.json
 
+# Node modules
+node_modules/
+

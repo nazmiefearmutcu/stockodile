@@ -71,4 +71,3 @@ class Channel(StrEnum):
     INDEX_VALUE = "index_value"
     MACRO_SERIES = "macro_series"
     OHLCV = "ohlcv"
-

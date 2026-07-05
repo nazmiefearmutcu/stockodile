@@ -45,6 +45,12 @@ USER_AGENTS = [
 ]
 
 
+class YahooError(Exception):
+    """Exception raised for Yahoo Finance provider errors."""
+
+    pass
+
+
 def _clean_float(val: Any) -> float | None:
     """Helper to convert float values to None if NaN."""
     if pd.isna(val):
@@ -105,9 +111,11 @@ class YahooClient:
 
         # Enforce default timeout on all requests using this session to avoid hanging
         orig_request = session.request
+
         def request_with_timeout(*args: Any, **kwargs: Any) -> requests.Response:
             kwargs.setdefault("timeout", 10.0)
             return orig_request(*args, **kwargs)
+
         session.request = request_with_timeout  # type: ignore
 
         return session
@@ -120,6 +128,26 @@ class YahooClient:
             logger.debug("Error closing old requests session: %s", e)
         self.session = self._create_session()
         logger.info("Yahoo Finance requests session reset with fresh User-Agent and clean cookies.")
+
+        # Clear yfinance global caches if present in runtime
+        try:
+            import yfinance as yf
+
+            modules_to_clear = [yf.utils]
+            try:
+                import yfinance.scrapers.quote as yf_quote
+
+                modules_to_clear.append(yf_quote.utils)
+            except Exception:
+                pass
+            for mod in modules_to_clear:
+                if mod is not None:
+                    if hasattr(mod, "_crumb"):
+                        mod._crumb = None
+                    if hasattr(mod, "_cookie"):
+                        mod._cookie = None
+        except Exception as e:
+            logger.debug("Failed to purge yfinance global crumb cache: %s", e)
 
     async def _execute_yf_call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Run a yfinance blocking call in an executor, handling 429s and crumb reset logic."""
@@ -199,6 +227,19 @@ class YahooClient:
     ) -> None:
         await self.close()
 
+    async def _check_health(self) -> bool:
+        """Verify client health by querying a highly active ticker like SPY."""
+        try:
+
+            def _call(session: requests.Session) -> pd.DataFrame:
+                return yf.Ticker("SPY", session=session).history(period="1d", auto_adjust=False)
+
+            df = await self._execute_yf_call(_call)
+            return df is not None and not df.empty
+        except Exception as e:
+            logger.debug("Yahoo health check failed: %s", e)
+            return False
+
     async def fetch_eod_history(
         self,
         symbol: str,
@@ -236,6 +277,11 @@ class YahooClient:
 
         df = await self._execute_yf_call(_call)
         if df is None or df.empty:
+            if not await self._check_health():
+                raise YahooError(
+                    "Yahoo Finance integration is unhealthy (crumb/cookie or "
+                    f"rate limit failure) while fetching EOD history for {symbol}."
+                )
             return []
 
         records: list[Record] = []
@@ -250,8 +296,32 @@ class YahooClient:
                 ts_val = idx
 
             # Convert to UTC epoch nanoseconds
+            if ts_val.tzinfo is None:
+                ts_val = ts_val.tz_localize("UTC")
+            else:
+                ts_val = ts_val.tz_convert("UTC")
             source_ts = int(ts_val.timestamp() * 1e9)
             date_str = ts_val.strftime("%Y-%m-%d")
+
+            open_val = _clean_float(row.get("Open"))
+            high_val = _clean_float(row.get("High"))
+            low_val = _clean_float(row.get("Low"))
+            close_val = _clean_float(row.get("Close"))
+            volume_val = _clean_float(row.get("Volume"))
+
+            if (
+                open_val is None
+                or high_val is None
+                or low_val is None
+                or close_val is None
+                or volume_val is None
+            ):
+                logger.warning(
+                    "Skipping bar with missing price/volume for %s on %s",
+                    symbol,
+                    date_str,
+                )
+                continue
 
             # Map the Bar record
             bar = Bar(
@@ -261,11 +331,11 @@ class YahooClient:
                 source_ts=source_ts,
                 local_ts=local_ts,
                 interval="1d",
-                open=float(row["Open"]),
-                high=float(row["High"]),
-                low=float(row["Low"]),
-                close=float(row["Close"]),
-                volume=float(row["Volume"]),
+                open=open_val,
+                high=high_val,
+                low=low_val,
+                close=close_val,
+                volume=volume_val,
                 vwap=None,
                 trade_count=None,
             )
@@ -273,8 +343,8 @@ class YahooClient:
 
             # Map dividends
             if "Dividends" in row:
-                div_val = float(row["Dividends"])
-                if div_val > 0.0:
+                div_val = _clean_float(row.get("Dividends"))
+                if div_val is not None and div_val > 0.0:
                     div = CorporateAction(
                         provider="yahoo",
                         symbol=symbol,
@@ -289,8 +359,8 @@ class YahooClient:
 
             # Map stock splits
             if "Stock Splits" in row:
-                split_val = float(row["Stock Splits"])
-                if split_val > 0.0:
+                split_val = _clean_float(row.get("Stock Splits"))
+                if split_val is not None and split_val > 0.0:
                     split = CorporateAction(
                         provider="yahoo",
                         symbol=symbol,
@@ -347,6 +417,11 @@ class YahooClient:
 
         df = await self._execute_yf_call(_call)
         if df is None or df.empty:
+            if not await self._check_health():
+                raise YahooError(
+                    "Yahoo Finance integration is unhealthy (crumb/cookie or "
+                    f"rate limit failure) while fetching intraday bars for {symbol}."
+                )
             return []
 
         records: list[Bar] = []
@@ -358,7 +433,31 @@ class YahooClient:
             else:
                 ts_val = idx
 
+            if ts_val.tzinfo is None:
+                ts_val = ts_val.tz_localize("UTC")
+            else:
+                ts_val = ts_val.tz_convert("UTC")
             source_ts = int(ts_val.timestamp() * 1e9)
+
+            open_val = _clean_float(row.get("Open"))
+            high_val = _clean_float(row.get("High"))
+            low_val = _clean_float(row.get("Low"))
+            close_val = _clean_float(row.get("Close"))
+            volume_val = _clean_float(row.get("Volume"))
+
+            if (
+                open_val is None
+                or high_val is None
+                or low_val is None
+                or close_val is None
+                or volume_val is None
+            ):
+                logger.warning(
+                    "Skipping bar with missing price/volume for %s at %s",
+                    symbol,
+                    ts_val,
+                )
+                continue
 
             bar = Bar(
                 provider="yahoo",
@@ -367,11 +466,11 @@ class YahooClient:
                 source_ts=source_ts,
                 local_ts=local_ts,
                 interval=interval,
-                open=float(row["Open"]),
-                high=float(row["High"]),
-                low=float(row["Low"]),
-                close=float(row["Close"]),
-                volume=float(row["Volume"]),
+                open=open_val,
+                high=high_val,
+                low=low_val,
+                close=close_val,
+                volume=volume_val,
                 vwap=None,
                 trade_count=None,
             )
@@ -408,16 +507,21 @@ class YahooClient:
                 expirations = await self._execute_yf_call(_get_exp)
             except Exception as e:
                 logger.error("Failed to fetch option expirations list for %s: %s", symbol, e)
-                return []
+                raise YahooError(f"Failed to fetch option expirations list for {symbol}") from e
 
         if not expirations:
+            if not await self._check_health():
+                raise YahooError(
+                    "Yahoo Finance integration is unhealthy (crumb/cookie or "
+                    f"rate limit failure) while fetching options for {symbol}."
+                )
             return []
 
         records: list[OptionQuote] = []
         local_ts = time.time_ns()
 
-        for exp in expirations:
-
+        # Fetch option chains concurrently
+        async def _fetch_single_chain(exp: str) -> list[OptionQuote]:
             def _get_chain(session: requests.Session, current_exp: str = exp) -> Any:
                 return yf.Ticker(symbol, session=session).option_chain(current_exp)
 
@@ -425,8 +529,9 @@ class YahooClient:
                 chain = await self._execute_yf_call(_get_chain)
             except Exception as e:
                 logger.error("Failed to fetch option chain for %s expiry %s: %s", symbol, exp, e)
-                continue
+                return []
 
+            single_records: list[OptionQuote] = []
             for opt_type, df in (("calls", chain.calls), ("puts", chain.puts)):
                 opt_enum = OptType.C if opt_type == "calls" else OptType.P
                 for _, row in df.iterrows():
@@ -436,7 +541,18 @@ class YahooClient:
                     source_ts = None
                     if "lastTradeDate" in row and not pd.isna(row["lastTradeDate"]):
                         ts_val = pd.to_datetime(row["lastTradeDate"])
+                        if ts_val.tzinfo is None:
+                            ts_val = ts_val.tz_localize("UTC")
+                        else:
+                            ts_val = ts_val.tz_convert("UTC")
                         source_ts = int(ts_val.timestamp() * 1e9)
+
+                    try:
+                        strike_val = _clean_float(row.get("strike"))
+                        if strike_val is None:
+                            continue
+                    except Exception:
+                        continue
 
                     quote = OptionQuote(
                         provider="yahoo",
@@ -446,7 +562,7 @@ class YahooClient:
                         local_ts=local_ts,
                         underlying=symbol,
                         expiry=exp,
-                        strike=float(row["strike"]),
+                        strike=strike_val,
                         type=opt_enum,
                         bid=_clean_float(row.get("bid")),
                         ask=_clean_float(row.get("ask")),
@@ -460,7 +576,13 @@ class YahooClient:
                         theta=None,
                         rho=None,
                     )
-                    records.append(quote)
+                    single_records.append(quote)
+            return single_records
+
+        tasks = [_fetch_single_chain(exp) for exp in expirations]
+        results = await asyncio.gather(*tasks)
+        for res in results:
+            records.extend(res)
 
         return records
 

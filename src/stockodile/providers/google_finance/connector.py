@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 import aiohttp
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from stockodile.providers.base import Provider
 from stockodile.reference.registry import Instrument, InstrumentRegistry
@@ -166,6 +166,7 @@ class GoogleFinanceProvider(Provider):
         super().__init__(symbols, channels, out, registry)
         self.session: aiohttp.ClientSession | None = None
         self._running = False
+        self._resolved_symbol_cache: dict[str, str] = {}
 
     async def list_instruments(self) -> list[Instrument]:
         insts = []
@@ -213,112 +214,216 @@ class GoogleFinanceProvider(Provider):
             self._running = False
             self.session = None
 
+    async def _scrape_with_g_sym(self, symbol: str, g_sym: str, local_ts: int) -> list[Record]:
+        if not self.session:
+            return []
+
+        url = f"{self.rest_url}/quote/{g_sym}"
+        headers = get_spoofed_headers()
+        try:
+            async with self.session.get(
+                url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10.0),
+            ) as resp:
+                if resp.status != 200:
+                    return []
+                html = await resp.text()
+
+                soup = BeautifulSoup(html, "html.parser")
+
+                # Parse price
+                price_classes = ["N6SYTe", "YMlKec", "fxKbKc"]
+                price_el = None
+                for cls in price_classes:
+                    price_el = soup.find(class_=cls)
+                    if price_el:
+                        break
+                if not price_el:
+                    price_el = soup.find(lambda tag: tag.has_attr("data-last-price"))
+                if not price_el:
+                    return []
+
+                price_str = price_el.get_text(strip=True)
+                # Robust currency and comma stripping
+                clean_price_str = price_str.strip()
+                for prefix in ["$", "€", "£", "¥", "₹", "A$", "C$", "HK$"]:
+                    if clean_price_str.startswith(prefix):
+                        clean_price_str = clean_price_str[len(prefix) :]
+                        break
+                clean_price_str = clean_price_str.replace(",", "").strip()
+                try:
+                    price = float(clean_price_str)
+                except ValueError:
+                    return []
+
+                # Parse source timestamp
+                source_ts = None
+                for attr in [
+                    "data-last-normal-market-timestamp",
+                    "data-last-market-timestamp",
+                    "data-timestamp",
+                ]:
+                    time_el = soup.find(lambda tag, attr=attr: tag.has_attr(attr))
+                    if isinstance(time_el, Tag):
+                        try:
+                            ts_str_val = time_el.get(attr)
+                            if ts_str_val:
+                                ts_val = int(ts_str_val)  # type: ignore[arg-type]
+                                if ts_val < 1e11:
+                                    source_ts = ts_val * 1_000_000_000
+                                else:
+                                    source_ts = ts_val * 1_000_000
+                                break
+                        except Exception:
+                            pass
+
+                if not source_ts:
+                    try:
+                        as_of_node = soup.find(string=lambda t: t and "As of " in t)
+                        if as_of_node:
+                            as_of_text = str(as_of_node).split("As of")[-1].strip()
+                            from dateutil import parser as date_parser
+
+                            dt = date_parser.parse(as_of_text, fuzzy=True)
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                            source_ts = int(dt.timestamp() * 1e9)
+                    except Exception:
+                        pass
+
+                records: list[Record] = []
+
+                # Real-time update - check InstrumentRegistry
+                is_index = False
+                inst = self.registry.get_raw(self.name, symbol)
+                if inst:
+                    is_index = inst.security_type == SecurityType.UNKNOWN
+                else:
+                    is_index = symbol.startswith("^") or symbol.startswith(".") or "INDEX" in g_sym
+
+                if is_index:
+                    if "index_value" in self.channels:
+                        records.append(
+                            IndexValue(
+                                provider=self.name,
+                                symbol=symbol.upper(),
+                                symbol_raw=symbol,
+                                source_ts=source_ts,
+                                local_ts=local_ts,
+                                value=price,
+                            )
+                        )
+                else:
+                    if "trade" in self.channels:
+                        records.append(
+                            Trade(
+                                provider=self.name,
+                                symbol=symbol.upper(),
+                                symbol_raw=symbol,
+                                source_ts=source_ts,
+                                local_ts=local_ts,
+                                id="",
+                                price=price,
+                                size=1.0,
+                            )
+                        )
+                    if "quote" in self.channels:
+                        records.append(
+                            Quote(
+                                provider=self.name,
+                                symbol=symbol.upper(),
+                                symbol_raw=symbol,
+                                source_ts=source_ts,
+                                local_ts=local_ts,
+                                bid_px=price,
+                                bid_sz=1.0,
+                                ask_px=price,
+                                ask_sz=1.0,
+                            )
+                        )
+
+                # Parse fundamentals
+                if "fundamental" in self.channels:
+                    key_classes = ["SwQK7", "m61tGe", "gy1Zab"]
+                    val_classes = ["dO6ijd", "P6K39c", "w26nd"]
+
+                    key_els: list[Any] = []
+                    for k_cls in key_classes:
+                        els = soup.find_all(class_=k_cls)
+                        if els:
+                            key_els = els
+                            break
+
+                    for key_el in key_els:
+                        val_el = None
+                        # 1. Search in parent container first to prevent DOM-wide misalignment
+                        parent = key_el.parent
+                        if parent:
+                            for v_cls in val_classes:
+                                val_el = parent.find(class_=v_cls)
+                                if val_el:
+                                    break
+                        # 2. Search sibling
+                        if not val_el:
+                            for v_cls in val_classes:
+                                val_el = key_el.find_next_sibling(class_=v_cls)
+                                if val_el:
+                                    break
+
+                        if val_el:
+                            key_text = key_el.get_text(strip=True)
+                            val_text = val_el.get_text(strip=True)
+                            if key_text in TAG_MAP:
+                                tag = TAG_MAP[key_text]
+                                end_str = ""
+                                if key_text == "Ex-dividend date":
+                                    end_str = parse_date(val_text)
+                                    val = 0.0
+                                    unit = "date"
+                                else:
+                                    val, unit = parse_val_and_unit(val_text, key_text)
+                                records.append(
+                                    Fundamental(
+                                        provider=self.name,
+                                        symbol=symbol.upper(),
+                                        symbol_raw=symbol,
+                                        source_ts=source_ts,
+                                        local_ts=local_ts,
+                                        taxonomy=self.name,
+                                        tag=tag,
+                                        unit=unit,
+                                        val=val,
+                                        end=end_str,
+                                    )
+                                )
+                return records
+        except Exception as e:
+            log.debug("Failed checking symbol possibility %s: %s", g_sym, e)
+            return []
+
     async def _scrape_symbol(self, symbol: str) -> list[Record]:
         if not self.session:
             return []
 
-        possibilities = get_possible_google_symbols(symbol)
         local_ts = time.time_ns()
 
+        # Check cache first
+        cached_g_sym = self._resolved_symbol_cache.get(symbol)
+        if cached_g_sym:
+            records = await self._scrape_with_g_sym(symbol, cached_g_sym, local_ts)
+            if records:
+                return records
+            # Invalidate cache if it fails
+            self._resolved_symbol_cache.pop(symbol, None)
+
+        possibilities = get_possible_google_symbols(symbol)
         for g_sym in possibilities:
-            url = f"{self.rest_url}/quote/{g_sym}"
-            headers = get_spoofed_headers()
-            try:
-                async with self.session.get(
-                    url,
-                    headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=10.0),
-                ) as resp:
-                    if resp.status != 200:
-                        continue
-                    html = await resp.text()
-
-                    soup = BeautifulSoup(html, "html.parser")
-
-                    # Parse price
-                    price_el = soup.find(class_="N6SYTe")
-                    if not price_el:
-                        continue
-                    price_str = price_el.get_text(strip=True)
-                    price = float(price_str.replace(",", "").replace("$", ""))
-
-                    records: list[Record] = []
-
-                    # Real-time update
-                    is_index = symbol.startswith("^") or symbol.startswith(".") or "INDEX" in g_sym
-                    if is_index:
-                        if "index_value" in self.channels:
-                            records.append(
-                                IndexValue(
-                                    provider=self.name,
-                                    symbol=symbol.upper(),
-                                    symbol_raw=symbol,
-                                    source_ts=None,
-                                    local_ts=local_ts,
-                                    value=price,
-                                )
-                            )
-                    else:
-                        if "trade" in self.channels:
-                            records.append(
-                                Trade(
-                                    provider=self.name,
-                                    symbol=symbol.upper(),
-                                    symbol_raw=symbol,
-                                    source_ts=None,
-                                    local_ts=local_ts,
-                                    id="",
-                                    price=price,
-                                    size=1.0,
-                                )
-                            )
-                        if "quote" in self.channels:
-                            records.append(
-                                Quote(
-                                    provider=self.name,
-                                    symbol=symbol.upper(),
-                                    symbol_raw=symbol,
-                                    source_ts=None,
-                                    local_ts=local_ts,
-                                    bid_px=price,
-                                    bid_sz=1.0,
-                                    ask_px=price,
-                                    ask_sz=1.0,
-                                )
-                            )
-
-                    # Parse fundamentals
-                    if "fundamental" in self.channels:
-                        for key_el in soup.find_all(class_="SwQK7"):
-                            val_el = key_el.find_next(class_="dO6ijd")
-                            if val_el:
-                                key_text = key_el.get_text(strip=True)
-                                val_text = val_el.get_text(strip=True)
-                                if key_text in TAG_MAP:
-                                    tag = TAG_MAP[key_text]
-                                    end_str = ""
-                                    if key_text == "Ex-dividend date":
-                                        end_str = parse_date(val_text)
-                                        val = 0.0
-                                        unit = "date"
-                                    else:
-                                        val, unit = parse_val_and_unit(val_text, key_text)
-                                    records.append(
-                                        Fundamental(
-                                            provider=self.name,
-                                            symbol=symbol.upper(),
-                                            symbol_raw=symbol,
-                                            source_ts=None,
-                                            local_ts=local_ts,
-                                            taxonomy=self.name,
-                                            tag=tag,
-                                            unit=unit,
-                                            val=val,
-                                            end=end_str,
-                                        )
-                                    )
-                    return records
-            except Exception as e:
-                log.debug("Failed checking symbol possibility %s: %s", g_sym, e)
+            if g_sym == cached_g_sym:
                 continue
+            records = await self._scrape_with_g_sym(symbol, g_sym, local_ts)
+            if records:
+                self._resolved_symbol_cache[symbol] = g_sym
+                return records
+
         return []

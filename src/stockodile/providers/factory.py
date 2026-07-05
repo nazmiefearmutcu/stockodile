@@ -54,9 +54,7 @@ def make_provider(
     """
     cls = _REGISTRY.get(provider)
     if cls is None:
-        raise ValueError(
-            f"Unknown provider {provider!r}. Valid names: {_VALID_NAMES}"
-        )
+        raise ValueError(f"Unknown provider {provider!r}. Valid names: {_VALID_NAMES}")
     return cls(
         symbols=symbols,
         channels=channels,

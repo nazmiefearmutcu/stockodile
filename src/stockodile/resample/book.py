@@ -55,17 +55,19 @@ def resample_book_snapshots(
                 initialized = True
                 # Set the first boundary to the end of the interval that
                 # contains this snapshot.
-                next_boundary_ns = (
-                    (ts // interval_ns) * interval_ns + interval_ns
-                )
+                next_boundary_ns = (ts // interval_ns) * interval_ns + interval_ns
             continue
+
+        # Yield snapshots for all boundaries strictly before ts to prevent lookahead bias.
+        assert next_boundary_ns is not None
+        while ts > next_boundary_ns:
+            yield _capture_snapshot(book, record, next_boundary_ns, top_n)
+            next_boundary_ns += interval_ns
 
         # Apply the record to the book (may raise BookGap).
         book.apply(record)
 
-        # After applying, check whether this record's local_ts has reached or
-        # crossed one or more interval boundaries.
-        assert next_boundary_ns is not None
+        # If the record is exactly on the boundary, yield the snapshot for it.
         while ts >= next_boundary_ns:
             yield _capture_snapshot(book, record, next_boundary_ns, top_n)
             next_boundary_ns += interval_ns

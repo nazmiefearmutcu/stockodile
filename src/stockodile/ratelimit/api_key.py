@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,6 +48,7 @@ class ApiKeyPool:
             config_path: Path to configuration file containing API keys.
             time_func: Function providing current time in seconds (defaults to time.monotonic).
         """
+        self._lock = threading.Lock()
         self._time_func = time_func
         self._pools: dict[str, list[ApiKeyStatus]] = {}
         self._current_indices: dict[str, int] = {}
@@ -107,16 +109,17 @@ class ApiKeyPool:
             provider: The API provider name.
             keys: List of keys to add.
         """
-        prov = provider.lower()
-        if prov not in self._pools:
-            self._pools[prov] = []
-            self._current_indices[prov] = 0
+        with self._lock:
+            prov = provider.lower()
+            if prov not in self._pools:
+                self._pools[prov] = []
+                self._current_indices[prov] = 0
 
-        existing_keys = {status.key for status in self._pools[prov]}
-        for key in keys:
-            key = key.strip()
-            if key and key not in existing_keys:
-                self._pools[prov].append(ApiKeyStatus(key=key))
+            existing_keys = {status.key for status in self._pools[prov]}
+            for key in keys:
+                key = key.strip()
+                if key and key not in existing_keys:
+                    self._pools[prov].append(ApiKeyStatus(key=key))
 
     def get_key(self, provider: str) -> str | None:
         """Get an active API key for the provider.
@@ -127,45 +130,45 @@ class ApiKeyPool:
         Args:
             provider: The API provider name.
         """
-        prov = provider.lower()
-        pool = self._pools.get(prov)
-        if not pool:
-            return None
+        with self._lock:
+            prov = provider.lower()
+            pool = self._pools.get(prov)
+            if not pool:
+                return None
 
-        now = self._time_func()
+            now = self._time_func()
 
-        # Step 1: Look for keys that are fully available (not throttled, not exhausted)
-        available_indices = []
-        for idx, status in enumerate(pool):
-            is_throttled = now < status.reset_at
-            is_exhausted = status.remaining is not None and status.remaining <= 0
-            if not is_throttled and not is_exhausted:
-                available_indices.append(idx)
+            # Step 1: Look for keys that are fully available (not throttled, not exhausted)
+            available_indices = []
+            for idx, status in enumerate(pool):
+                is_throttled = now < status.reset_at
+                is_exhausted = status.remaining is not None and status.remaining <= 0
+                if not is_throttled and not is_exhausted:
+                    available_indices.append(idx)
 
-        if available_indices:
-            # Pick the next available key in round-robin fashion
-            start_idx = self._current_indices[prov]
-            for idx in available_indices:
-                if idx >= start_idx % len(pool):
-                    self._current_indices[prov] = idx + 1
-                    return pool[idx].key
-            # Fallback to the first available index
-            chosen_idx = available_indices[0]
-            self._current_indices[prov] = chosen_idx + 1
-            return pool[chosen_idx].key
+            if available_indices:
+                # Pick the next available key in round-robin fashion
+                start_idx = self._current_indices[prov]
+                for idx in available_indices:
+                    if idx >= start_idx % len(pool):
+                        self._current_indices[prov] = idx + 1
+                        return pool[idx].key
+                # Fallback to the first available index
+                chosen_idx = available_indices[0]
+                self._current_indices[prov] = chosen_idx + 1
+                return pool[chosen_idx].key
 
-        # Step 2: If none are fully available, look for keys that are only throttled (not exhausted)
-        throttled_keys = [
-            status for status in pool
-            if (status.remaining is None or status.remaining > 0)
-        ]
-        if throttled_keys:
-            best = min(throttled_keys, key=lambda s: s.reset_at)
-            return best.key
+            # Step 2: If none are fully available, look for keys that are only throttled
+            throttled_keys = [
+                status for status in pool if (status.remaining is None or status.remaining > 0)
+            ]
+            if throttled_keys:
+                best = min(throttled_keys, key=lambda s: s.reset_at)
+                return best.key
 
-        # Step 3: If all keys are exhausted, pick the one that resets the earliest
-        best_exhausted = min(pool, key=lambda s: s.reset_at)
-        return best_exhausted.key
+            # Step 3: If all keys are exhausted, pick the one that resets the earliest
+            best_exhausted = min(pool, key=lambda s: s.reset_at)
+            return best_exhausted.key
 
     def report_success(self, provider: str, key: str) -> None:
         """Report a successful request using a specific key.
@@ -174,14 +177,16 @@ class ApiKeyPool:
             provider: The API provider name.
             key: The API key.
         """
-        prov = provider.lower()
-        pool = self._pools.get(prov)
-        if not pool:
-            return
-        for status in pool:
-            if status.key == key:
-                status.consecutive_failures = 0
-                break
+        with self._lock:
+            prov = provider.lower()
+            pool = self._pools.get(prov)
+            if not pool:
+                return
+            for status in pool:
+                if status.key == key:
+                    status.consecutive_failures = 0
+                    status.reset_at = 0.0
+                    break
 
     def report_failure(self, provider: str, key: str) -> None:
         """Report a general request failure (e.g. connection timeout) using a specific key.
@@ -192,16 +197,17 @@ class ApiKeyPool:
             provider: The API provider name.
             key: The API key.
         """
-        prov = provider.lower()
-        pool = self._pools.get(prov)
-        if not pool:
-            return
-        for status in pool:
-            if status.key == key:
-                status.consecutive_failures += 1
-                backoff = min(60.0, 2.0 ** status.consecutive_failures)
-                status.reset_at = max(status.reset_at, self._time_func() + backoff)
-                break
+        with self._lock:
+            prov = provider.lower()
+            pool = self._pools.get(prov)
+            if not pool:
+                return
+            for status in pool:
+                if status.key == key:
+                    status.consecutive_failures += 1
+                    backoff = min(60.0, 2.0**status.consecutive_failures)
+                    status.reset_at = max(status.reset_at, self._time_func() + backoff)
+                    break
 
     def report_throttled(self, provider: str, key: str, backoff_duration: float) -> None:
         """Report that a specific key was throttled (HTTP 429).
@@ -213,14 +219,15 @@ class ApiKeyPool:
             key: The API key.
             backoff_duration: Backoff delay in seconds.
         """
-        prov = provider.lower()
-        pool = self._pools.get(prov)
-        if not pool:
-            return
-        for status in pool:
-            if status.key == key:
-                status.reset_at = max(status.reset_at, self._time_func() + backoff_duration)
-                break
+        with self._lock:
+            prov = provider.lower()
+            pool = self._pools.get(prov)
+            if not pool:
+                return
+            for status in pool:
+                if status.key == key:
+                    status.reset_at = max(status.reset_at, self._time_func() + backoff_duration)
+                    break
 
     def report_exhausted(self, provider: str, key: str, reset_in: float = 86400.0) -> None:
         """Report that a specific key has hit its daily/monthly cap.
@@ -232,15 +239,16 @@ class ApiKeyPool:
             key: The API key.
             reset_in: The duration in seconds until the key's quota resets.
         """
-        prov = provider.lower()
-        pool = self._pools.get(prov)
-        if not pool:
-            return
-        for status in pool:
-            if status.key == key:
-                status.remaining = 0
-                status.reset_at = max(status.reset_at, self._time_func() + reset_in)
-                break
+        with self._lock:
+            prov = provider.lower()
+            pool = self._pools.get(prov)
+            if not pool:
+                return
+            for status in pool:
+                if status.key == key:
+                    status.remaining = 0
+                    status.reset_at = max(status.reset_at, self._time_func() + reset_in)
+                    break
 
     def update_quota(
         self,
@@ -259,23 +267,24 @@ class ApiKeyPool:
             limit: Maximum allowed calls in the period.
             reset_at_epoch: Unix epoch timestamp when the quota resets.
         """
-        prov = provider.lower()
-        pool = self._pools.get(prov)
-        if not pool:
-            return
-        for status in pool:
-            if status.key == key:
-                status.remaining = remaining
-                if limit is not None:
-                    status.limit = limit
-                if reset_at_epoch is not None:
-                    time_diff = reset_at_epoch - time.time()
-                    if time_diff > 0:
-                        status.reset_at = self._time_func() + time_diff
-                    else:
+        with self._lock:
+            prov = provider.lower()
+            pool = self._pools.get(prov)
+            if not pool:
+                return
+            for status in pool:
+                if status.key == key:
+                    status.remaining = remaining
+                    if limit is not None:
+                        status.limit = limit
+                    if reset_at_epoch is not None:
+                        time_diff = reset_at_epoch - time.time()
+                        if 0 < time_diff <= 86400.0:
+                            status.reset_at = self._time_func() + time_diff
+                        elif time_diff > 86400.0:
+                            status.reset_at = self._time_func() + 86400.0
+                        else:
+                            status.reset_at = 0.0
+                    elif remaining > 0:
                         status.reset_at = 0.0
-                elif remaining > 0:
-                    now = self._time_func()
-                    if status.reset_at <= now:
-                        status.reset_at = 0.0
-                break
+                    break

@@ -18,19 +18,35 @@ from typing import Any
 import mmh3
 import msgspec.structs
 
-from stockodile.schema.enums import CorpActionType, Tape
+from stockodile.schema.enums import (
+    CorpActionType,
+    FundPeriod,
+    OptType,
+    SecurityType,
+    Side,
+    Tape,
+)
 from stockodile.schema.records import (
     OHLCV,
+    Auction,
     Bar,
     BookDelta,
     BookSnapshot,
     CorporateAction,
     Filing,
     Fundamental,
+    Holding13F,
     IndexValue,
+    InsiderTransaction,
+    Instrument,
+    MacroSeries,
+    OptionQuote,
     Quote,
     Record,
+    ShortInterest,
+    ShortVolume,
     Trade,
+    TradingStatus,
 )
 
 
@@ -78,6 +94,12 @@ def to_row(record: Record) -> dict[str, Any]:
 
     # Coerce enum values to primitives
     row: dict[str, Any] = {k: _convert_value(v) for k, v in raw.items()}
+
+    if channel == "instrument" and "exchange" in row:
+        row["exchange_name"] = row.pop("exchange")
+
+    if channel in ("short_volume", "macro_series") and "date" in row:
+        row["date_val"] = row.pop("date")
 
     # Add partition columns
     row["channel"] = channel
@@ -153,7 +175,7 @@ def from_row(row: dict[str, Any]) -> Record:
             asks=_coerce_levels_from_row(d.get("asks", [])),
             depth=int(d["depth"]),
             sequence_id=d.get("sequence_id"),
-            is_snapshot=bool(d.get("is_snapshot", True)),
+            is_snapshot=bool(d["is_snapshot"]) if d.get("is_snapshot") is not None else True,
         )
     if channel == "book_delta":
         return BookDelta(
@@ -166,7 +188,7 @@ def from_row(row: dict[str, Any]) -> Record:
             asks=_coerce_levels_from_row(d.get("asks", [])),
             seq_id=d.get("seq_id"),
             prev_seq_id=d.get("prev_seq_id"),
-            is_snapshot=bool(d.get("is_snapshot", False)),
+            is_snapshot=bool(d["is_snapshot"]) if d.get("is_snapshot") is not None else False,
         )
     if channel == "corp_action":
         return CorporateAction(
@@ -202,14 +224,14 @@ def from_row(row: dict[str, Any]) -> Record:
             symbol_raw=d["symbol_raw"],
             source_ts=d.get("source_ts"),
             local_ts=int(d["local_ts"]),
-            taxonomy=str(d["taxonomy"]),
-            tag=str(d["tag"]),
-            unit=str(d["unit"]),
-            val=float(d["val"]),
-            end=str(d["end"]),
+            taxonomy=str(d["taxonomy"]) if d.get("taxonomy") is not None else None,  # type: ignore[arg-type]
+            tag=str(d["tag"]) if d.get("tag") is not None else None,  # type: ignore[arg-type]
+            unit=str(d["unit"]) if d.get("unit") is not None else None,  # type: ignore[arg-type]
+            val=float(d["val"]) if d.get("val") is not None else None,  # type: ignore[arg-type]
+            end=str(d["end"]) if d.get("end") is not None else None,  # type: ignore[arg-type]
             start=d.get("start"),
             fy=int(d["fy"]) if d.get("fy") is not None else None,
-            fp=d.get("fp"),
+            fp=FundPeriod(d["fp"]) if d.get("fp") else None,
             form=d.get("form"),
             filed=d.get("filed"),
             accn=d.get("accn"),
@@ -254,5 +276,172 @@ def from_row(row: dict[str, Any]) -> Record:
             source_ts=d.get("source_ts"),
             local_ts=int(d["local_ts"]),
             value=float(d["value"]),
+        )
+    if channel == "auction":
+        return Auction(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            paired_shares=(
+                float(d["paired_shares"]) if d.get("paired_shares") is not None else None
+            ),
+            imbalance_shares=(
+                float(d["imbalance_shares"]) if d.get("imbalance_shares") is not None else None
+            ),
+            imbalance_side=Side(d["imbalance_side"]) if d.get("imbalance_side") else None,
+            reference_price=(
+                float(d["reference_price"]) if d.get("reference_price") is not None else None
+            ),
+            indicative_price=(
+                float(d["indicative_price"]) if d.get("indicative_price") is not None else None
+            ),
+            auction_type=d.get("auction_type"),
+        )
+    if channel == "trading_status":
+        return TradingStatus(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            status=str(d["status"]),
+            reason=d.get("reason"),
+            limit_up_price=(
+                float(d["limit_up_price"]) if d.get("limit_up_price") is not None else None
+            ),
+            limit_down_price=(
+                float(d["limit_down_price"]) if d.get("limit_down_price") is not None else None
+            ),
+            indicator=d.get("indicator"),
+        )
+    if channel == "instrument":
+        return Instrument(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            name=d.get("name"),
+            cik=d.get("cik"),
+            figi=d.get("figi"),
+            composite_figi=d.get("composite_figi"),
+            share_class_figi=d.get("share_class_figi"),
+            cusip=d.get("cusip"),
+            exchange=d.get("exchange_name"),
+            security_type=SecurityType(d["security_type"]) if d.get("security_type") else None,
+            sic=d.get("sic"),
+            shares_outstanding=(
+                int(d["shares_outstanding"]) if d.get("shares_outstanding") is not None else None
+            ),
+            listing_date=d.get("listing_date"),
+            status=d.get("status"),
+        )
+    if channel == "insider":
+        return InsiderTransaction(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            insider_name=str(d["insider_name"]),
+            position=str(d["position"]),
+            transaction_type=str(d["transaction_type"]),
+            transaction_date=str(d["transaction_date"]),
+            shares=float(d["shares"]) if d.get("shares") is not None else None,
+            price=float(d["price"]) if d.get("price") is not None else None,
+            value=float(d["value"]) if d.get("value") is not None else None,
+            ownership=d.get("ownership"),
+        )
+    if channel == "holding_13f":
+        return Holding13F(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            manager_name=str(d["manager_name"]),
+            issuer_name=str(d["issuer_name"]),
+            cusip=str(d["cusip"]),
+            value=float(d["value"]),
+            shares=float(d["shares"]),
+            shares_type=str(d["shares_type"]),
+            discretion=d.get("discretion"),
+            voting_sole=float(d["voting_sole"]) if d.get("voting_sole") is not None else None,
+            voting_shared=float(d["voting_shared"]) if d.get("voting_shared") is not None else None,
+            voting_none=float(d["voting_none"]) if d.get("voting_none") is not None else None,
+            report_date=d.get("report_date"),
+            accession_number=d.get("accession_number"),
+        )
+    if channel == "short_interest":
+        return ShortInterest(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            settlement_date=str(d["settlement_date"]),
+            short_interest=float(d["short_interest"]),
+            prev_short_interest=(
+                float(d["prev_short_interest"])
+                if d.get("prev_short_interest") is not None
+                else None
+            ),
+            days_to_cover=float(d["days_to_cover"]) if d.get("days_to_cover") is not None else None,
+            change_pct=float(d["change_pct"]) if d.get("change_pct") is not None else None,
+        )
+    if channel == "short_volume":
+        return ShortVolume(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            date=str(d["date_val"]),
+            short_volume=float(d["short_volume"]),
+            short_exempt_volume=(
+                float(d["short_exempt_volume"])
+                if d.get("short_exempt_volume") is not None
+                else None
+            ),
+            total_volume=float(d["total_volume"]),
+        )
+    if channel == "option_quote":
+        return OptionQuote(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            underlying=str(d["underlying"]),
+            expiry=str(d["expiry"]),
+            strike=float(d["strike"]),
+            type=OptType(d["type"]),
+            bid=float(d["bid"]) if d.get("bid") is not None else None,
+            ask=float(d["ask"]) if d.get("ask") is not None else None,
+            last=float(d["last"]) if d.get("last") is not None else None,
+            volume=float(d["volume"]) if d.get("volume") is not None else None,
+            open_interest=float(d["open_interest"]) if d.get("open_interest") is not None else None,
+            implied_volatility=(
+                float(d["implied_volatility"]) if d.get("implied_volatility") is not None else None
+            ),
+            delta=float(d["delta"]) if d.get("delta") is not None else None,
+            gamma=float(d["gamma"]) if d.get("gamma") is not None else None,
+            vega=float(d["vega"]) if d.get("vega") is not None else None,
+            theta=float(d["theta"]) if d.get("theta") is not None else None,
+            rho=float(d["rho"]) if d.get("rho") is not None else None,
+        )
+    if channel == "macro_series":
+        return MacroSeries(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            source_ts=d.get("source_ts"),
+            local_ts=int(d["local_ts"]),
+            date=str(d["date_val"]),
+            value=float(d["value"]) if d.get("value") is not None else None,
+            realtime_start=d.get("realtime_start"),
+            realtime_end=d.get("realtime_end"),
         )
     raise ValueError(f"Unknown channel tag: {channel!r}")

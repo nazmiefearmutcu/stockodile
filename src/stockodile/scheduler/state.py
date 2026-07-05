@@ -11,16 +11,14 @@ class TaskStateRecord(msgspec.Struct):
     """Serialization model for task state."""
 
     last_run_timestamp: str | None = None  # ISO format datetime
-    last_run_date: str | None = None       # ISO format date
+    last_run_date: str | None = None  # ISO format date
 
 
 class SchedulerStateStore(ABC):
     """Abstract base class for storing scheduler execution state."""
 
     @abstractmethod
-    def get_last_run(
-        self, task_name: str
-    ) -> tuple[datetime.datetime | None, datetime.date | None]:
+    def get_last_run(self, task_name: str) -> tuple[datetime.datetime | None, datetime.date | None]:
         """Retrieve (last_run_timestamp, last_run_date) for a task."""
         pass
 
@@ -38,9 +36,7 @@ class InMemoryStateStore(SchedulerStateStore):
     def __init__(self) -> None:
         self._states: dict[str, tuple[datetime.datetime, datetime.date]] = {}
 
-    def get_last_run(
-        self, task_name: str
-    ) -> tuple[datetime.datetime | None, datetime.date | None]:
+    def get_last_run(self, task_name: str) -> tuple[datetime.datetime | None, datetime.date | None]:
         if task_name in self._states:
             return self._states[task_name]
         return None, None
@@ -71,18 +67,28 @@ class JSONFileStateStore(SchedulerStateStore):
                     return
                 self._cache = msgspec.json.decode(data, type=dict[str, TaskStateRecord])
         except Exception:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.exception(f"Failed to load state store from {self.filepath}. Creating a backup.")
+            try:
+                bak_filepath = self.filepath + ".bak"
+                if os.path.exists(self.filepath):
+                    os.replace(self.filepath, bak_filepath)
+            except Exception:
+                logger.exception("Failed to backup corrupted state file.")
             # Fallback to empty if decoding fails or file is corrupted
             self._cache = {}
 
     def _save(self) -> None:
         # Ensure parent directory exists
         os.makedirs(os.path.dirname(os.path.abspath(self.filepath)), exist_ok=True)
-        with open(self.filepath, "wb") as f:
+        temp_filepath = self.filepath + ".tmp"
+        with open(temp_filepath, "wb") as f:
             f.write(msgspec.json.encode(self._cache))
+        os.replace(temp_filepath, self.filepath)
 
-    def get_last_run(
-        self, task_name: str
-    ) -> tuple[datetime.datetime | None, datetime.date | None]:
+    def get_last_run(self, task_name: str) -> tuple[datetime.datetime | None, datetime.date | None]:
         record = self._cache.get(task_name)
         if not record:
             return None, None

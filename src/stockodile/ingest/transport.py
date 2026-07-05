@@ -61,6 +61,7 @@ class AiohttpWsTransport:
     async def connect(self) -> None:
         import aiohttp
 
+        await self.close()
         self._session = aiohttp.ClientSession()
         self._ws = await self._session.ws_connect(self._url, heartbeat=20.0)
 
@@ -77,13 +78,21 @@ class AiohttpWsTransport:
                 yield msg.data.encode()
             elif msg.type == aiohttp.WSMsgType.BINARY:
                 yield msg.data
-            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
+            elif msg.type == aiohttp.WSMsgType.ERROR:
+                exc = self._ws.exception()
+                if exc is not None:
+                    raise exc
+                raise ConnectionError("WebSocket connection closed with error")
+            elif msg.type == aiohttp.WSMsgType.CLOSE:
                 break
 
     async def send(self, data: bytes) -> None:
         if self._ws is not None:
-            text = data.decode() if isinstance(data, (bytes, bytearray)) else data
-            await self._ws.send_str(text)
+            try:
+                text = data.decode("utf-8")
+                await self._ws.send_str(text)
+            except UnicodeDecodeError:
+                await self._ws.send_bytes(data)
 
     async def close(self) -> None:
         if self._ws is not None:

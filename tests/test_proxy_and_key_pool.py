@@ -109,10 +109,7 @@ def test_api_key_pool_quota_and_throttling() -> None:
     def time_func() -> float:
         return current_time
 
-    pool = ApiKeyPool(
-        keys={"tiingo": ["key1", "key2", "key3"]},
-        time_func=time_func
-    )
+    pool = ApiKeyPool(keys={"tiingo": ["key1", "key2", "key3"]}, time_func=time_func)
 
     # All keys are initially active. Round-robin:
     assert pool.get_key("tiingo") == "key1"
@@ -193,11 +190,7 @@ async def test_token_bucket_integration() -> None:
     pool = ApiKeyPool(keys={"tiingo": ["k1", "k2"]})
 
     bucket = TokenBucket(
-        capacity=10.0,
-        refill_rate=2.0,
-        proxy_rotator=rotator,
-        api_key_pool=pool,
-        provider="tiingo"
+        capacity=10.0, refill_rate=2.0, proxy_rotator=rotator, api_key_pool=pool, provider="tiingo"
     )
 
     assert bucket.proxy_rotator is rotator
@@ -221,3 +214,84 @@ async def test_token_bucket_integration() -> None:
 
     # k1 should be throttled, so only k2 is returned
     assert bucket.get_api_key() == "k2"
+
+
+def test_proxy_rotator_format_validation() -> None:
+    import os
+
+    os.environ["STOCKODILE_TEST_INVALID_PROXIES"] = "127.0.0.1:8080"
+    with pytest.raises(ValueError, match="Scheme must be"):
+        ProxyRotator(env_var="STOCKODILE_TEST_INVALID_PROXIES")
+
+
+def test_proxy_rotator_failure_cooldown_and_success() -> None:
+    current_time = 100.0
+
+    def time_func() -> float:
+        return current_time
+
+    rotator = ProxyRotator(time_func=time_func)
+    rotator.proxies = ["http://p1", "http://p2", "http://p3"]
+
+    assert rotator.get_proxy() == "http://p1"
+
+    # Report failure on p1. It should cool down and rotator rotates to p2
+    rotator.report_failure("http://p1")
+    assert rotator.get_proxy() == "http://p2"
+
+    # Report failure on p2. It should cool down and rotator rotates to p3
+    rotator.report_failure("http://p2")
+    assert rotator.get_proxy() == "http://p3"
+
+    # Now p1 and p2 are failed. If we ask for proxy, we get p3
+    assert rotator.get_proxy() == "http://p3"
+
+    # Report failure on p3. All are failed.
+    rotator.report_failure("http://p3")
+
+    # Fallback to the one that resets the earliest (p1: backoff=2s, reset_at=102.0)
+    assert rotator.get_proxy() == "http://p1"
+
+    # Report success on p2. It becomes immediately active
+    rotator.report_success("http://p2")
+    assert rotator.get_proxy() == "http://p2"
+
+
+def test_api_key_pool_quota_reset_recovery() -> None:
+    current_time = 1000.0
+
+    def time_func() -> float:
+        return current_time
+
+    pool = ApiKeyPool(keys={"tiingo": ["key1"]}, time_func=time_func)
+
+    # Exhaust key1 (reset_at = 1000 + 86400 = 87400)
+    pool.report_exhausted("tiingo", "key1", reset_in=86400.0)
+
+    # Quota resets: update_quota says remaining > 0, reset_at_epoch is None
+    pool.update_quota("tiingo", "key1", remaining=100)
+
+    # It should become immediately available (reset_at = 0.0)
+    assert pool.get_key("tiingo") == "key1"
+    status = pool._pools["tiingo"][0]
+    assert status.reset_at == 0.0
+
+
+def test_api_key_pool_success_clears_throttling() -> None:
+    current_time = 100.0
+
+    def time_func() -> float:
+        return current_time
+
+    pool = ApiKeyPool(keys={"tiingo": ["key1"]}, time_func=time_func)
+
+    # Throttle key1 (reset_at = 160)
+    pool.report_throttled("tiingo", "key1", 60.0)
+    status = pool._pools["tiingo"][0]
+    assert status.reset_at == 160.0
+
+    # Succeed key1
+    pool.report_success("tiingo", "key1")
+
+    # It should clear reset_at to 0.0 immediately
+    assert status.reset_at == 0.0

@@ -55,14 +55,13 @@ def test_backoff_delays() -> None:
     assert backoff_delays(10, base=1.0, cap=30.0, jitter=0.0) == 30.0
 
 
-@pytest.mark.asyncio
-async def test_deadletter_queue() -> None:
+def test_deadletter_queue() -> None:
     dlq = DeadLetterQueue(max_size=3)
-    await dlq.put(1, b"raw1", "Err1", "tb1")
-    await dlq.put(2, b"raw2", "Err2", "tb2")
-    await dlq.put(3, b"raw3", "Err3", "tb3")
+    dlq.put(1, b"raw1", "Err1", "tb1")
+    dlq.put(2, b"raw2", "Err2", "tb2")
+    dlq.put(3, b"raw3", "Err3", "tb3")
     # should evict the first one if we add more
-    await dlq.put(4, b"raw4", "Err4", "tb4")
+    dlq.put(4, b"raw4", "Err4", "tb4")
 
     items = dlq.drain()
     assert len(items) == 3
@@ -202,13 +201,13 @@ async def test_book_resync_bridge() -> None:
         local_ts=600,
         bids=[],
         asks=[],
-        seq_id=205,
+        seq_id=201,
         prev_seq_id=None,
     )
     assert bridge.feed_sync_result(SyncResult.DROP, delta2) is None
 
     # Complete resync
-    # snapshot seq will be 200. spot venue: keep seq_id > 200. delta2 (205) > 200, so it is kept.
+    # snapshot seq will be 200. spot venue: keep seq_id > 200. delta2 (201) > 200, so it is kept.
     emitted = await bridge.complete_resync()
     assert len(emitted) == 2
     assert isinstance(emitted[0], BookSnapshot)

@@ -32,6 +32,8 @@ class OrderBook:
 
         # Last seq_id applied (from a snapshot or delta); None if not set
         self._last_seq_id: int | None = None
+        self._first_delta_after_snapshot: bool = False
+        self._last_delta: BookDelta | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -55,27 +57,16 @@ class OrderBook:
     def apply_batch(self, deltas: Sequence[BookDelta]) -> None:
         """Apply a batch of deltas that share one ``local_ts`` atomically.
 
-        Gap detection is performed on the *first* delta in the batch (the one
-        that carries the continuity information).  Subsequent deltas in the
-        same batch are applied without re-checking seq continuity.
-
         Args:
             deltas: One or more BookDelta records from the same timestamp.
 
         Raises:
-            BookGap: If the first delta's seq_id violates continuity.
+            BookGap: If any delta's sequence continuity check fails.
         """
         if not deltas:
             return
-        for i, delta in enumerate(deltas):
-            if i == 0:
-                self._apply_delta(delta)
-            else:
-                if self._initialized:
-                    self._apply_levels(delta.bids, self.bids)
-                    self._apply_levels(delta.asks, self.asks)
-                    if delta.seq_id is not None:
-                        self._last_seq_id = delta.seq_id
+        for delta in deltas:
+            self._apply_delta(delta)
 
     def best_bid(self) -> float | None:
         """Return the highest bid price, or None if the bids side is empty."""
@@ -97,6 +88,8 @@ class OrderBook:
         self._apply_levels(snap.asks, self.asks)
         self._initialized = True
         self._last_seq_id = snap.sequence_id
+        self._first_delta_after_snapshot = True
+        self._last_delta = None
 
     def _apply_delta(self, delta: BookDelta) -> None:
         """Apply one delta, performing gap detection first."""
@@ -110,20 +103,43 @@ class OrderBook:
 
         if delta.seq_id is not None:
             self._last_seq_id = delta.seq_id
+        self._first_delta_after_snapshot = False
+        self._last_delta = delta
 
     def _check_gap(self, delta: BookDelta) -> None:
         """Validate sequence continuity; raise BookGap if broken."""
+        if delta.seq_id is not None and self._last_seq_id is not None:
+            if delta.seq_id == self._last_seq_id:
+                if self._last_delta is not None:
+                    if delta.bids != self._last_delta.bids or delta.asks != self._last_delta.asks:
+                        raise BookGap(
+                            f"Duplicate sequence number {delta.seq_id} with different delta content"
+                        )
+                return
+
         if delta.prev_seq_id is not None:
             if self._last_seq_id is None:
                 raise BookGap(
                     f"Sequence gap: delta.prev_seq_id={delta.prev_seq_id!r} "
                     f"but last_seq_id is None (snapshot had no sequence_id)"
                 )
-            if delta.prev_seq_id != self._last_seq_id:
-                raise BookGap(
-                    f"Sequence gap: delta.prev_seq_id={delta.prev_seq_id!r} "
-                    f"!= last_seq_id={self._last_seq_id!r}"
+            if self._first_delta_after_snapshot:
+                is_valid = (
+                    delta.seq_id is not None
+                    and delta.prev_seq_id < self._last_seq_id <= delta.seq_id
                 )
+                if not is_valid:
+                    raise BookGap(
+                        f"Sequence gap on first futures delta after snapshot: "
+                        f"expected prev_seq_id={delta.prev_seq_id!r} < "
+                        f"last_seq_id={self._last_seq_id!r} <= seq_id={delta.seq_id!r}"
+                    )
+            else:
+                if delta.prev_seq_id != self._last_seq_id:
+                    raise BookGap(
+                        f"Sequence gap: delta.prev_seq_id={delta.prev_seq_id!r} "
+                        f"!= last_seq_id={self._last_seq_id!r}"
+                    )
         else:
             if (
                 delta.seq_id is not None
@@ -146,7 +162,11 @@ class OrderBook:
         size >  0.0 → set/overwrite the absolute size at that price.
         """
         for price, size in levels:
+            assert price > 0, f"price must be positive, got {price}"
+            assert size >= 0, f"size must be non-negative, got {size}"
+
+            rounded_price = round(price, 8)
             if size == 0.0:
-                side.pop(price, None)
+                side.pop(rounded_price, None)
             else:
-                side[price] = size
+                side[rounded_price] = size

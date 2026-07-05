@@ -156,20 +156,26 @@ async def test_stooq_captcha_api_solvers() -> None:
 
     # Mock responses for 2captcha
     mock_post_resp = MagicMock()
+    mock_post_resp.status = 200
     mock_post_resp.json = AsyncMock(return_value={"status": 1, "request": "mock_task_id"})
-    
+
     mock_get_resp = MagicMock()
+    mock_get_resp.status = 200
     mock_get_resp.json = AsyncMock(return_value={"status": 1, "request": "solved_code_123"})
 
     class MockClientSession2Captcha:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
+            self.closed = False
+
         async def __aenter__(self) -> MockClientSession2Captcha:
             return self
+
         async def __aexit__(self, *args: Any) -> None:
             pass
+
         def post(self, *args: Any, **kwargs: Any) -> Any:
             return mock_post_resp
+
         def get(self, *args: Any, **kwargs: Any) -> Any:
             return mock_get_resp
 
@@ -182,10 +188,15 @@ async def test_stooq_captcha_api_solvers() -> None:
         code = await provider.solve_captcha_2captcha("test_key", b"dummy_img")
         assert code == "solved_code_123"
 
+    # Reset cached session so the new patch works
+    provider.session = None
+
     # Mock responses for anticaptcha
     mock_anti_post_resp1 = MagicMock()
+    mock_anti_post_resp1.status = 200
     mock_anti_post_resp1.json = AsyncMock(return_value={"errorId": 0, "taskId": 999})
     mock_anti_post_resp2 = MagicMock()
+    mock_anti_post_resp2.status = 200
     mock_anti_post_resp2.json = AsyncMock(
         return_value={
             "errorId": 0,
@@ -196,11 +207,15 @@ async def test_stooq_captcha_api_solvers() -> None:
 
     class MockClientSessionAntiCaptcha:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.closed = False
             self._call_count = 0
+
         async def __aenter__(self) -> MockClientSessionAntiCaptcha:
             return self
+
         async def __aexit__(self, *args: Any) -> None:
             pass
+
         def post(self, *args: Any, **kwargs: Any) -> Any:
             if self._call_count == 0:
                 self._call_count += 1

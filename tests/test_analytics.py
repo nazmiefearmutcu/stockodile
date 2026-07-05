@@ -168,3 +168,82 @@ def test_ratios() -> None:
 
     assert pytest.approx(calculate_net_margin(10.0, 100.0)) == 0.1
     assert math.isnan(calculate_net_margin(10.0, 0.0))
+
+
+def test_ratios_nulls() -> None:
+    # All ratios should return NaN if inputs are None
+    assert math.isnan(calculate_pe_ratio(None, 5.0))
+    assert math.isnan(calculate_pe_ratio(100.0, None))
+    assert math.isnan(calculate_pe_ratio(None, None))
+
+    assert math.isnan(calculate_pb_ratio(None, 10.0))
+    assert math.isnan(calculate_pb_ratio(100.0, None))
+
+    assert math.isnan(calculate_roe(None, 50.0))
+    assert math.isnan(calculate_roe(10.0, None))
+
+    assert math.isnan(calculate_gross_margin(None, 100.0))
+    assert math.isnan(calculate_gross_margin(40.0, None))
+
+    assert math.isnan(calculate_operating_margin(None, 100.0))
+    assert math.isnan(calculate_operating_margin(20.0, None))
+
+    assert math.isnan(calculate_net_margin(None, 100.0))
+    assert math.isnan(calculate_net_margin(10.0, None))
+
+
+def test_returns_nulls() -> None:
+    prices = [10.0, None, 11.0, 0.0, 12.0]
+
+    # Simple returns list loop should handle Nones without TypeError
+    sim_ret = calculate_simple_returns(prices)
+    assert len(sim_ret) == 5
+    assert math.isnan(sim_ret[0])
+    assert math.isnan(sim_ret[1])
+    assert math.isnan(sim_ret[2])
+    assert sim_ret[3] == pytest.approx(-1.0)
+    assert math.isnan(sim_ret[4])
+
+    # Log returns list loop should handle Nones
+    log_ret = calculate_log_returns(prices)
+    assert len(log_ret) == 5
+    assert math.isnan(log_ret[0])
+    assert math.isnan(log_ret[1])
+
+
+def test_option_pricing_boundaries() -> None:
+    # Zero strike calls
+    c_val = bsm_price(s=100.0, k=0.0, t=1.0, r=0.05, sigma=0.2, q=0.02, option_type="call")
+    # Call value for K = 0 should be S * e^(-q T) = 100 * e^(-0.02)
+    assert pytest.approx(c_val) == 100.0 * math.exp(-0.02)
+
+    p_val = bsm_price(s=100.0, k=0.0, t=1.0, r=0.05, sigma=0.2, q=0.02, option_type="put")
+    assert p_val == 0.0
+
+    # Negative parameters should raise ValueError
+    with pytest.raises(ValueError):
+        bsm_price(s=-100.0, k=100.0, t=1.0, r=0.05, sigma=0.2)
+    with pytest.raises(ValueError):
+        bsm_price(s=100.0, k=-100.0, t=1.0, r=0.05, sigma=0.2)
+    with pytest.raises(ValueError):
+        bsm_price(s=100.0, k=100.0, t=-1.0, r=0.05, sigma=0.2)
+
+    with pytest.raises(ValueError):
+        bsm_greeks(s=-100.0, k=100.0, t=1.0, r=0.05, sigma=0.2)
+
+    # Greeks for K = 0 limit
+    greeks_zero = bsm_greeks(s=100.0, k=0.0, t=1.0, r=0.05, sigma=0.2, q=0.02, option_type="call")
+    assert pytest.approx(greeks_zero["delta"]) == math.exp(-0.02)
+    assert greeks_zero["gamma"] == 0.0
+    assert pytest.approx(greeks_zero["theta"]) == -0.02 * 100.0 * math.exp(-0.02)
+
+
+def test_implied_volatility_non_convergence() -> None:
+    # If we pass a target price that is impossible/does not converge
+    # (e.g. price is within bounds, but we limit max_iterations to 1 to force non-convergence)
+    s, k, t, r, q = 100.0, 100.0, 1.0, 0.05, 0.02
+    target_vol = 0.25
+    c_price = bsm_price(s, k, t, r, target_vol, q, "call")
+
+    iv = bsm_implied_volatility(c_price, s, k, t, r, q, "call", max_iterations=1, tolerance=1e-12)
+    assert math.isnan(iv)

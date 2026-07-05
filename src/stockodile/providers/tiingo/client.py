@@ -3,6 +3,8 @@
 import asyncio
 import csv
 import io
+import os
+import tempfile
 import time
 import zipfile
 from datetime import UTC, datetime
@@ -12,23 +14,27 @@ from typing import Any
 import aiohttp
 import msgspec
 
+from stockodile.ratelimit.api_key import ApiKeyPool
 from stockodile.ratelimit.token_bucket import TokenBucketLimiter
 from stockodile.schema.enums import CorpActionType
-from stockodile.schema.records import Bar, CorporateAction, Record
+from stockodile.schema.records import Bar, CorporateAction, OptionQuote, Record
 
 
 class TiingoError(Exception):
     """Base exception for the Tiingo provider."""
+
     pass
 
 
 class TiingoQuotaError(TiingoError):
     """Exception raised when the unique symbols monthly quota is exceeded."""
+
     pass
 
 
 class TiingoRateLimitError(TiingoError):
     """Exception raised when API returns 429 Too Many Requests."""
+
     pass
 
 
@@ -94,33 +100,63 @@ class SymbolCapTracker:
         symbol = symbol.upper()
         current_month = self._get_current_month()
 
-        async with self.lock:
-            state: dict[str, Any] = {"month": current_month, "symbols": []}
-            if self.filepath.exists():
+        def _sync_register() -> None:
+            import fcntl
+
+            lock_filepath = self.filepath.with_suffix(".lock")
+            # Create parent directory for lock file if not exists
+            lock_filepath.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(lock_filepath, "a+") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
                 try:
-                    data = self.filepath.read_bytes()
-                    if data:
-                        state = msgspec.json.decode(data)
-                except Exception:
-                    pass
+                    state: dict[str, Any] = {"month": current_month, "symbols": []}
+                    if self.filepath.exists():
+                        try:
+                            data = self.filepath.read_bytes()
+                            if data:
+                                state = msgspec.json.decode(data)
+                        except Exception as e:
+                            # If file is not empty but fails to parse, it is corrupted.
+                            if self.filepath.stat().st_size > 0:
+                                raise TiingoError(
+                                    "Tiingo quota tracking file at "
+                                    f"{self.filepath} is corrupted: {e}"
+                                ) from e
 
-            if state.get("month") != current_month:
-                state = {"month": current_month, "symbols": []}
+                    if state.get("month") != current_month:
+                        state = {"month": current_month, "symbols": []}
 
-            symbols = list(state.get("symbols", []))
-            if symbol in symbols:
-                return
+                    symbols = list(state.get("symbols", []))
+                    if symbol in symbols:
+                        return
 
-            if len(symbols) >= 500:
-                raise TiingoQuotaError(
-                    f"Tiingo monthly unique symbols quota (500) exceeded for {current_month}."
-                )
+                    if len(symbols) >= 500:
+                        raise TiingoQuotaError(
+                            "Tiingo monthly unique symbols quota (500) "
+                            f"exceeded for {current_month}."
+                        )
 
-            symbols.append(symbol)
-            state["symbols"] = symbols
+                    symbols.append(symbol)
+                    state["symbols"] = symbols
 
-            self.filepath.parent.mkdir(parents=True, exist_ok=True)
-            self.filepath.write_bytes(msgspec.json.encode(state))
+                    self.filepath.parent.mkdir(parents=True, exist_ok=True)
+                    with tempfile.NamedTemporaryFile(
+                        "wb", dir=self.filepath.parent, delete=False
+                    ) as tf:
+                        tf.write(msgspec.json.encode(state))
+                        temp_name = tf.name
+                    try:
+                        os.replace(temp_name, self.filepath)
+                    except Exception:
+                        if os.path.exists(temp_name):
+                            os.remove(temp_name)
+                        raise
+                finally:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _sync_register)
 
 
 class TiingoClient:
@@ -128,18 +164,23 @@ class TiingoClient:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str | None = None,
+        api_key_pool: ApiKeyPool | None = None,
         tracker_path: str | Path | None = None,
         session: aiohttp.ClientSession | None = None,
+        rate_limiter: TokenBucketLimiter | None = None,
     ) -> None:
         """Initialize the client.
 
         Args:
             api_key: Tiingo API token.
+            api_key_pool: Optional API key pool.
             tracker_path: Path to the JSON file tracking unique symbols.
             session: Optional pre-existing aiohttp client session.
+            rate_limiter: Optional TokenBucketLimiter instance.
         """
         self.api_key = api_key
+        self.api_key_pool = api_key_pool
         self.session = session
         self._own_session = False
 
@@ -148,7 +189,22 @@ class TiingoClient:
         self.tracker = SymbolCapTracker(Path(tracker_path))
 
         # Enforce free tier rate limit: 50 requests/hour, capacity 50.
-        self.limiter = TokenBucketLimiter(rate=50.0 / 3600.0, capacity=50.0)
+        self.limiter = rate_limiter or TokenBucketLimiter(
+            rate=50.0 / 3600.0,
+            capacity=50.0,
+            api_key_pool=api_key_pool,
+            provider="tiingo",
+        )
+
+    def _get_api_key(self) -> str:
+        """Retrieve the API key from pool or direct parameter."""
+        if self.api_key_pool:
+            key = self.api_key_pool.get_key("tiingo")
+            if key:
+                return key
+        if self.api_key:
+            return self.api_key
+        raise TiingoError("No Tiingo API key or API key pool available.")
 
     async def get_session(self) -> aiohttp.ClientSession:
         """Get or initialize the HTTP client session."""
@@ -228,17 +284,34 @@ class TiingoClient:
         if resample_freq:
             params["resampleFreq"] = resample_freq
 
-        headers = {"Authorization": f"Token {self.api_key}"}
+        key = self._get_api_key()
+        headers = {"Authorization": f"Token {key}"}
 
-        async with session.get(url, params=params, headers=headers) as resp:
-            if resp.status == 429:
-                raise TiingoRateLimitError("Tiingo API rate limit exceeded (429).")
-            if resp.status != 200:
-                body = await resp.text()
-                raise TiingoError(
-                    f"Failed to fetch EOD prices for {ticker}: HTTP {resp.status} - {body}"
-                )
-            data = await resp.read()
+        try:
+            async with session.get(url, params=params, headers=headers) as resp:
+                if resp.status == 429:
+                    if self.api_key_pool:
+                        self.api_key_pool.report_throttled("tiingo", key, 60.0)
+                    raise TiingoRateLimitError("Tiingo API rate limit exceeded (429).")
+                if resp.status in (401, 403):
+                    if self.api_key_pool:
+                        self.api_key_pool.report_exhausted("tiingo", key, 86400.0 * 365)
+                    body = await resp.text()
+                    raise TiingoError(f"Tiingo authentication failure: HTTP {resp.status} - {body}")
+                if resp.status != 200:
+                    if self.api_key_pool:
+                        self.api_key_pool.report_failure("tiingo", key)
+                    body = await resp.text()
+                    raise TiingoError(
+                        f"Failed to fetch EOD prices for {ticker}: HTTP {resp.status} - {body}"
+                    )
+                if self.api_key_pool:
+                    self.api_key_pool.report_success("tiingo", key)
+                data = await resp.read()
+        except aiohttp.ClientError as e:
+            if self.api_key_pool:
+                self.api_key_pool.report_failure("tiingo", key)
+            raise TiingoError(f"Network error while calling Tiingo: {e}") from e
 
         raw_prices = msgspec.json.decode(data, type=list[TiingoEodPrice])
         records: list[Record] = []
@@ -320,17 +393,34 @@ class TiingoClient:
         if resample_freq:
             params["resampleFreq"] = resample_freq
 
-        headers = {"Authorization": f"Token {self.api_key}"}
+        key = self._get_api_key()
+        headers = {"Authorization": f"Token {key}"}
 
-        async with session.get(url, params=params, headers=headers) as resp:
-            if resp.status == 429:
-                raise TiingoRateLimitError("Tiingo API rate limit exceeded (429).")
-            if resp.status != 200:
-                body = await resp.text()
-                raise TiingoError(
-                    f"Failed to fetch intraday bars for {ticker}: HTTP {resp.status} - {body}"
-                )
-            data = await resp.read()
+        try:
+            async with session.get(url, params=params, headers=headers) as resp:
+                if resp.status == 429:
+                    if self.api_key_pool:
+                        self.api_key_pool.report_throttled("tiingo", key, 60.0)
+                    raise TiingoRateLimitError("Tiingo API rate limit exceeded (429).")
+                if resp.status in (401, 403):
+                    if self.api_key_pool:
+                        self.api_key_pool.report_exhausted("tiingo", key, 86400.0 * 365)
+                    body = await resp.text()
+                    raise TiingoError(f"Tiingo authentication failure: HTTP {resp.status} - {body}")
+                if resp.status != 200:
+                    if self.api_key_pool:
+                        self.api_key_pool.report_failure("tiingo", key)
+                    body = await resp.text()
+                    raise TiingoError(
+                        f"Failed to fetch intraday bars for {ticker}: HTTP {resp.status} - {body}"
+                    )
+                if self.api_key_pool:
+                    self.api_key_pool.report_success("tiingo", key)
+                data = await resp.read()
+        except aiohttp.ClientError as e:
+            if self.api_key_pool:
+                self.api_key_pool.report_failure("tiingo", key)
+            raise TiingoError(f"Network error while calling Tiingo: {e}") from e
 
         raw_prices = msgspec.json.decode(data, type=list[TiingoIexPrice])
         bars: list[Bar] = []
@@ -357,3 +447,14 @@ class TiingoClient:
             bars.append(bar)
 
         return bars
+
+    async def fetch_option_chain(
+        self,
+        symbol: str,
+        expiry: str | None = None,
+    ) -> list[OptionQuote]:
+        """Fetch option chain quotes.
+
+        Not supported by TiingoClient.
+        """
+        raise NotImplementedError("TiingoClient does not support option chain fetching.")

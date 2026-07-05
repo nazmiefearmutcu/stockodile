@@ -3,11 +3,11 @@ from datetime import UTC, datetime
 
 
 def ms_to_ns(ms: int | float) -> int:
-    return int(ms) * 1_000_000
+    return int(ms * 1_000_000)
 
 
 def us_to_ns(us: int | float) -> int:
-    return int(us) * 1_000
+    return int(us * 1_000)
 
 
 def now_ns() -> int:
@@ -17,19 +17,30 @@ def now_ns() -> int:
 
 def rfc3339_to_ns(dt_str: str) -> int:
     """Parse RFC-3339 timestamp with arbitrary subsecond precision to nanosecond timestamp."""
-    # Handle timezone offset if any, Alpaca uses Z
+    offset_str = "+00:00"
+    dt_part = dt_str
+
     if dt_str.endswith("Z"):
-        dt_str = dt_str[:-1]
-    
-    if "." in dt_str:
-        base, frac = dt_str.split(".", 1)
+        offset_str = "+00:00"
+        dt_part = dt_str[:-1]
+    else:
+        t_idx = dt_str.find("T")
+        if t_idx != -1:
+            plus_idx = dt_str.rfind("+", t_idx)
+            minus_idx = dt_str.rfind("-", t_idx)
+            idx = max(plus_idx, minus_idx)
+            if idx != -1:
+                offset_str = dt_str[idx:]
+                dt_part = dt_str[:idx]
+
+    if "." in dt_part:
+        base, frac = dt_part.split(".", 1)
         frac = frac[:9].ljust(9, "0")
         subseconds_ns = int(frac)
     else:
-        base = dt_str
+        base = dt_part
         subseconds_ns = 0
-    
-    dt = datetime.fromisoformat(base)
-    secs = int(dt.replace(tzinfo=UTC).timestamp())
-    return secs * 1_000_000_000 + subseconds_ns
 
+    dt_with_offset = datetime.fromisoformat(f"{base}{offset_str}")
+    secs = int(dt_with_offset.astimezone(UTC).timestamp())
+    return secs * 1_000_000_000 + subseconds_ns

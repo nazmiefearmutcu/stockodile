@@ -28,7 +28,7 @@ import polars as pl
 
 from stockodile.schema.records import Record
 from stockodile.sink.base import Sink
-from stockodile.store.rows import to_row
+from stockodile.store.rows import _date_from_ns, _symbol_bucket, to_row
 
 # ---------------------------------------------------------------------------
 # Polars schema definitions per channel
@@ -95,6 +95,136 @@ _CHANNEL_EXTRA: dict[str, dict[str, Any]] = {
         "vwap": pl.Float64,
         "trade_count": pl.Int64,
     },
+    "corp_action": {
+        "ex_date": pl.Utf8,
+        "type": pl.Utf8,
+        "value": pl.Float64,
+    },
+    "fundamental": {
+        "taxonomy": pl.Utf8,
+        "tag": pl.Utf8,
+        "unit": pl.Utf8,
+        "val": pl.Float64,
+        "end": pl.Utf8,
+        "start": pl.Utf8,
+        "fy": pl.Int64,
+        "fp": pl.Utf8,
+        "form": pl.Utf8,
+        "filed": pl.Utf8,
+        "accn": pl.Utf8,
+        "frame": pl.Utf8,
+    },
+    "filing": {
+        "accession_number": pl.Utf8,
+        "form": pl.Utf8,
+        "filing_date": pl.Utf8,
+        "primary_document": pl.Utf8,
+        "document_url": pl.Utf8,
+        "report_date": pl.Utf8,
+        "is_xbrl": pl.Boolean,
+    },
+    "ohlcv": {
+        "interval": pl.Utf8,
+        "open": pl.Float64,
+        "high": pl.Float64,
+        "low": pl.Float64,
+        "close": pl.Float64,
+        "volume": pl.Float64,
+        "vwap": pl.Float64,
+        "trade_count": pl.Int64,
+    },
+    "index_value": {
+        "value": pl.Float64,
+    },
+    "auction": {
+        "paired_shares": pl.Float64,
+        "imbalance_shares": pl.Float64,
+        "imbalance_side": pl.Utf8,
+        "reference_price": pl.Float64,
+        "indicative_price": pl.Float64,
+        "auction_type": pl.Utf8,
+    },
+    "trading_status": {
+        "status": pl.Utf8,
+        "reason": pl.Utf8,
+        "limit_up_price": pl.Float64,
+        "limit_down_price": pl.Float64,
+        "indicator": pl.Utf8,
+    },
+    "instrument": {
+        "name": pl.Utf8,
+        "cik": pl.Utf8,
+        "figi": pl.Utf8,
+        "composite_figi": pl.Utf8,
+        "share_class_figi": pl.Utf8,
+        "cusip": pl.Utf8,
+        "exchange_name": pl.Utf8,
+        "security_type": pl.Utf8,
+        "sic": pl.Utf8,
+        "shares_outstanding": pl.Int64,
+        "listing_date": pl.Utf8,
+        "status": pl.Utf8,
+    },
+    "insider": {
+        "insider_name": pl.Utf8,
+        "position": pl.Utf8,
+        "transaction_type": pl.Utf8,
+        "transaction_date": pl.Utf8,
+        "shares": pl.Float64,
+        "price": pl.Float64,
+        "value": pl.Float64,
+        "ownership": pl.Utf8,
+    },
+    "holding_13f": {
+        "manager_name": pl.Utf8,
+        "issuer_name": pl.Utf8,
+        "cusip": pl.Utf8,
+        "value": pl.Float64,
+        "shares": pl.Float64,
+        "shares_type": pl.Utf8,
+        "discretion": pl.Utf8,
+        "voting_sole": pl.Float64,
+        "voting_shared": pl.Float64,
+        "voting_none": pl.Float64,
+        "report_date": pl.Utf8,
+        "accession_number": pl.Utf8,
+    },
+    "short_interest": {
+        "settlement_date": pl.Utf8,
+        "short_interest": pl.Float64,
+        "prev_short_interest": pl.Float64,
+        "days_to_cover": pl.Float64,
+        "change_pct": pl.Float64,
+    },
+    "short_volume": {
+        "date_val": pl.Utf8,
+        "short_volume": pl.Float64,
+        "short_exempt_volume": pl.Float64,
+        "total_volume": pl.Float64,
+    },
+    "option_quote": {
+        "underlying": pl.Utf8,
+        "expiry": pl.Utf8,
+        "strike": pl.Float64,
+        "type": pl.Utf8,
+        "bid": pl.Float64,
+        "ask": pl.Float64,
+        "last": pl.Float64,
+        "volume": pl.Float64,
+        "open_interest": pl.Float64,
+        "implied_volatility": pl.Float64,
+        "delta": pl.Float64,
+        "gamma": pl.Float64,
+        "vega": pl.Float64,
+        "theta": pl.Float64,
+        "rho": pl.Float64,
+    },
+    "macro_series": {
+        "date_val": pl.Utf8,
+        "value": pl.Float64,
+        "realtime_start": pl.Utf8,
+        "realtime_end": pl.Utf8,
+    },
 }
 
 
@@ -104,9 +234,7 @@ def _channel_schema(channel: str) -> dict[str, Any]:
     return {**_COMMON_FIELDS, **extra}
 
 
-def _coerce_levels(
-    rows: list[dict[str, Any]], field: str
-) -> None:
+def _coerce_levels(rows: list[dict[str, Any]], field: str) -> None:
     """Convert list-of-tuples book levels to list-of-dicts in-place.
 
     Polars ``pl.List(pl.Struct(...))`` requires dicts, not tuples.
@@ -142,9 +270,10 @@ class ParquetSink(Sink):
         self._data_dir = Path(data_dir)
         self._max_buffer_rows = max_buffer_rows
         self._flush_interval = flush_interval_seconds
-        # channel → list[row dicts]
-        self._buffers: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+        # channel → list[Record]
+        self._buffers: defaultdict[str, list[Record]] = defaultdict(list)
         self._last_flush: float = time.monotonic()
+        self._flush_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Sink interface
@@ -152,14 +281,14 @@ class ParquetSink(Sink):
 
     async def put(self, record: Record) -> None:
         """Buffer a record; auto-flush if thresholds are exceeded."""
-        row = to_row(record)
-        channel: str = row["channel"]
-        self._buffers[channel].append(row)
+        channel: str = type(record).__struct_config__.tag  # type: ignore[assignment]
+        self._buffers[channel].append(record)
 
         # Flush on row-count threshold
         if len(self._buffers[channel]) >= self._max_buffer_rows:
-            await self._flush_channel(channel)
-            self._last_flush = time.monotonic()
+            async with self._flush_lock:
+                await self._flush_channel(channel)
+                self._last_flush = time.monotonic()
             return
 
         # Flush on time threshold (checked lazily on the next put)
@@ -169,11 +298,12 @@ class ParquetSink(Sink):
 
     async def flush(self) -> None:
         """Flush all buffered channels to Parquet."""
-        channels = list(self._buffers.keys())
-        for channel in channels:
-            if self._buffers[channel]:
-                await self._flush_channel(channel)
-        self._last_flush = time.monotonic()
+        async with self._flush_lock:
+            channels = list(self._buffers.keys())
+            for channel in channels:
+                if self._buffers[channel]:
+                    await self._flush_channel(channel)
+            self._last_flush = time.monotonic()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -181,26 +311,30 @@ class ParquetSink(Sink):
 
     async def _flush_channel(self, channel: str) -> None:
         """Write a channel's buffer to one or more Parquet files and clear it."""
-        rows = self._buffers.pop(channel, [])
-        if not rows:
+        records = self._buffers.pop(channel, [])
+        if not records:
             return
 
-        # Group rows by (exchange, date, bucket) — each group → one file
-        groups: defaultdict[tuple[str, str, int], list[dict[str, Any]]] = defaultdict(list)
-        for row in rows:
-            key = (row["exchange"], row["date"], row["bucket"])
-            groups[key].append(row)
+        # Group records by (exchange, date, bucket) — each group → one file
+        groups: defaultdict[tuple[str, str, int], list[Record]] = defaultdict(list)
+        for record in records:
+            key = (record.provider, _date_from_ns(record.local_ts), _symbol_bucket(record.symbol))
+            groups[key].append(record)
 
-        for (exchange, date, bucket), group_rows in groups.items():
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                self._write_parquet_sync,
-                channel,
-                exchange,
-                date,
-                bucket,
-                group_rows,
+        tasks = []
+        for (exchange, date, bucket), group_records in groups.items():
+            tasks.append(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self._write_parquet_sync,
+                    channel,
+                    exchange,
+                    date,
+                    bucket,
+                    group_records,
+                )
             )
+        await asyncio.gather(*tasks)
 
     def _write_parquet_sync(
         self,
@@ -208,9 +342,11 @@ class ParquetSink(Sink):
         exchange: str,
         date: str,
         bucket: int,
-        rows: list[dict[str, Any]],
+        records: list[Record],
     ) -> None:
         """Synchronous Parquet write (runs in executor to avoid blocking the loop)."""
+        rows = [to_row(r) for r in records]
+
         # Build output path
         part_dir = (
             self._data_dir
@@ -230,9 +366,7 @@ class ParquetSink(Sink):
         # Build DataFrame with explicit schema to ensure type consistency
         schema = _channel_schema(channel)
         # Keep only columns that appear in the schema (unknown extras dropped)
-        filtered_rows: list[dict[str, Any]] = [
-            {k: row.get(k) for k in schema} for row in rows
-        ]
+        filtered_rows: list[dict[str, Any]] = [{k: row.get(k) for k in schema} for row in rows]
         df = pl.DataFrame(filtered_rows, schema=schema)
 
         df.write_parquet(

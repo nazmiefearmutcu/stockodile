@@ -2,7 +2,7 @@
 
 from datetime import UTC
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -256,7 +256,10 @@ async def test_rate_limiting_and_session_reset() -> None:
             raise YFRateLimitError()
         return pd.DataFrame()
 
-    with patch("yfinance.Ticker") as mock_ticker_cls:
+    with (
+        patch("yfinance.Ticker") as mock_ticker_cls,
+        patch.object(client, "_check_health", AsyncMock(return_value=True)),
+    ):
         mock_ticker = MagicMock()
         mock_ticker.history = flaky_call
         mock_ticker_cls.return_value = mock_ticker

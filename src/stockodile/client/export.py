@@ -35,9 +35,7 @@ def export(
 ) -> None:
     """Export rows for ``(channel, symbols, [frm, to])`` to a file in ``fmt`` format."""
     if fmt not in _VALID_FMTS:
-        raise ValueError(
-            f"Unsupported fmt={fmt!r}. Must be one of: {sorted(_VALID_FMTS)}"
-        )
+        raise ValueError(f"Unsupported fmt={fmt!r}. Must be one of: {sorted(_VALID_FMTS)}")
 
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)

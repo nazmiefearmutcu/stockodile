@@ -29,6 +29,7 @@ from stockodile.analytics.returns import (
     calculate_log_returns,
     calculate_simple_returns,
 )
+from stockodile.analytics.slippage import estimate_slippage
 
 __all__ = [
     "bsm_delta",
@@ -49,4 +50,5 @@ __all__ = [
     "calculate_realized_volatility",
     "calculate_roe",
     "calculate_simple_returns",
+    "estimate_slippage",
 ]

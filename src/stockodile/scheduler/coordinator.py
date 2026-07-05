@@ -45,6 +45,14 @@ class PullTask:
 
         self.start_date = start_date
 
+        # Check if function accepts a date parameter
+        sig = inspect.signature(func)
+        try:
+            sig.bind(datetime.date.today())
+            self.accepts_date = True
+        except TypeError:
+            self.accepts_date = False
+
 
 class ScheduledPullCoordinator:
     """Coordinates low-frequency data pulls, respecting trading hours and calendars."""
@@ -57,6 +65,8 @@ class ScheduledPullCoordinator:
         self.state_store = state_store
         self.calendar = calendar or USMarketCalendar()
         self.tasks: dict[str, PullTask] = {}
+        # Track task failures: task_name -> {logical_date: (retry_count, last_failure_timestamp)}
+        self._task_failures: dict[str, dict[datetime.date, tuple[int, datetime.datetime]]] = {}
 
     def register_task(
         self,
@@ -74,13 +84,17 @@ class ScheduledPullCoordinator:
 
         valid_intervals = {"daily", "weekly", "semi_monthly", "monthly", "bi_monthly"}
         if interval not in valid_intervals:
-            raise ValueError(
-                f"Invalid interval '{interval}'. Must be one of {valid_intervals}"
-            )
+            raise ValueError(f"Invalid interval '{interval}'. Must be one of {valid_intervals}")
 
         valid_policies = {"anytime", "during_hours", "after_hours"}
         if policy not in valid_policies:
             raise ValueError(f"Invalid policy '{policy}'. Must be one of {valid_policies}")
+
+        if run_on_non_trading_days and policy == "during_hours":
+            raise ValueError(
+                "Logical contradiction: run_on_non_trading_days cannot be True "
+                "when policy is 'during_hours', as markets are closed on non-trading days."
+            )
 
         self.tasks[name] = PullTask(
             name=name,
@@ -95,6 +109,11 @@ class ScheduledPullCoordinator:
             f"Registered scheduled task: {name} (interval={interval}, "
             f"policy={policy}, target_time={target_time})"
         )
+        if not self.tasks[name].accepts_date:
+            logger.warning(
+                f"Task '{name}' does not accept a date parameter. "
+                "Bypassing historical catch-up; this task will only execute for the current period."
+            )
 
     def _is_new_period(
         self, interval: str, prev_date: datetime.date, next_date: datetime.date
@@ -132,9 +151,7 @@ class ScheduledPullCoordinator:
 
         return False
 
-    def get_next_due_date(
-        self, task: PullTask, now_et: datetime.datetime
-    ) -> datetime.date | None:
+    def get_next_due_date(self, task: PullTask, now_et: datetime.datetime) -> datetime.date | None:
         """Calculate the next date for which the task is due to run.
 
         Returns None if the task is not due.
@@ -142,20 +159,32 @@ class ScheduledPullCoordinator:
         current_date = now_et.date()
         _, last_run_date = self.state_store.get_last_run(task.name)
 
+        if not task.accepts_date:
+            # Bypass catch-up: only check the current date/period.
+            # If it already ran in the current period, it is not due.
+            if last_run_date is not None and not self._is_new_period(
+                task.interval, last_run_date, current_date
+            ):
+                return None
+            if task.run_on_non_trading_days or self.calendar.is_trading_day(current_date):
+                if task.start_date is None or current_date >= task.start_date:
+                    if now_et.time() >= task.target_time:
+                        return current_date
+            return None
+
         if last_run_date is None:
             # If the task has never run, determine the starting reference point
             start_ref = task.start_date if task.start_date is not None else current_date
-            # Check date-by-date backward to find the first valid run target
-            d = current_date
-            while d >= start_ref:
+            # Check date-by-date forward to find the oldest valid run target
+            d = start_ref
+            while d <= current_date:
                 if task.run_on_non_trading_days or self.calendar.is_trading_day(d):
                     if d < current_date:
                         return d
                     if d == current_date:
                         if now_et.time() >= task.target_time:
                             return d
-                    break
-                d -= datetime.timedelta(days=1)
+                d += datetime.timedelta(days=1)
             return None
 
         # Find the next period date to run
@@ -174,49 +203,30 @@ class ScheduledPullCoordinator:
 
     async def _execute_task(self, task: PullTask, run_date: datetime.date) -> None:
         """Execute a task function, resolving sync/async and parameters."""
-        sig = inspect.signature(task.func)
-        has_date_param = "run_date" in sig.parameters or any(
-            p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
-        )
-
         is_async = asyncio.iscoroutinefunction(task.func) or (
             callable(task.func)
             and asyncio.iscoroutinefunction(getattr(task.func, "__call__", None))  # noqa: B004
         )
 
         if is_async:
-            if has_date_param:
+            if task.accepts_date:
                 await task.func(run_date)
             else:
-                try:
-                    await task.func(run_date)
-                except TypeError:
-                    await task.func()
+                await task.func()
         else:
             loop = asyncio.get_running_loop()
-            if has_date_param:
+            if task.accepts_date:
                 await loop.run_in_executor(None, task.func, run_date)
             else:
+                await loop.run_in_executor(None, task.func)
 
-                def wrapper() -> Any:
-                    try:
-                        return task.func(run_date)
-                    except TypeError:
-                        return task.func()
-
-                await loop.run_in_executor(None, wrapper)
-
-    async def check_and_run_once(
-        self, current_time: datetime.datetime | None = None
-    ) -> int:
+    async def check_and_run_once(self, current_time: datetime.datetime | None = None) -> int:
         """Scan all registered tasks, check due status, and execute due tasks.
 
         Returns the number of tasks successfully executed.
         """
         now_et = (
-            current_time.astimezone(MARKET_TZ)
-            if current_time
-            else datetime.datetime.now(MARKET_TZ)
+            current_time.astimezone(MARKET_TZ) if current_time else datetime.datetime.now(MARKET_TZ)
         )
         executed_count = 0
 
@@ -228,14 +238,28 @@ class ScheduledPullCoordinator:
             # Respect policy boundaries
             if task.policy == "during_hours":
                 if not self.calendar.is_market_open(now_et):
-                    logger.debug(
-                        f"Task '{task.name}' is due for {run_date} but market is closed."
-                    )
+                    logger.debug(f"Task '{task.name}' is due for {run_date} but market is closed.")
                     continue
             elif task.policy == "after_hours":
                 if self.calendar.is_market_open(now_et):
+                    logger.debug(f"Task '{task.name}' is due for {run_date} but market is open.")
+                    continue
+
+            # Check if this task for this run_date has failed too many times or is cooling down
+            if task.name in self._task_failures and run_date in self._task_failures[task.name]:
+                retry_count, last_fail_time = self._task_failures[task.name][run_date]
+                if retry_count >= 3:
+                    logger.warning(
+                        f"Task '{task.name}' has exceeded maximum retries (3) "
+                        f"for logical date {run_date}. Skipping."
+                    )
+                    continue
+                # Cool-down of 300 seconds (5 minutes)
+                time_since_fail = (now_et - last_fail_time).total_seconds()
+                if time_since_fail < 300:
                     logger.debug(
-                        f"Task '{task.name}' is due for {run_date} but market is open."
+                        f"Task '{task.name}' for logical date {run_date} is in cool-down. "
+                        f"Seconds remaining: {300 - time_since_fail:.1f}"
                     )
                     continue
 
@@ -245,10 +269,18 @@ class ScheduledPullCoordinator:
                 self.state_store.update_last_run(task.name, now_et, run_date)
                 executed_count += 1
                 logger.info(f"Successfully completed task '{task.name}' for {run_date}")
+                if task.name in self._task_failures:
+                    self._task_failures[task.name].pop(run_date, None)
             except Exception as e:
                 logger.exception(
                     f"Error executing task '{task.name}' for logical date {run_date}: {e}"
                 )
+                if task.name not in self._task_failures:
+                    self._task_failures[task.name] = {}
+                count, _ = self._task_failures[task.name].get(
+                    run_date, (0, datetime.datetime.min.replace(tzinfo=MARKET_TZ))
+                )
+                self._task_failures[task.name][run_date] = (count + 1, now_et)
 
         return executed_count
 
@@ -257,7 +289,12 @@ class ScheduledPullCoordinator:
         logger.info("Starting scheduled pull coordinator loop.")
         try:
             while True:
-                await self.check_and_run_once()
+                try:
+                    await self.check_and_run_once()
+                except Exception as e:
+                    logger.exception(
+                        f"Unhandled error in scheduled pull coordinator loop iteration: {e}"
+                    )
                 await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
             logger.info("Scheduled pull coordinator loop cancelled.")

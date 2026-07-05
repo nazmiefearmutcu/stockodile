@@ -1,6 +1,7 @@
 """Security Master implementation for Stockodile."""
 
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
@@ -27,19 +28,29 @@ class SecurityMaster:
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self.db_path = db_path
-        self.conn = sqlite3.connect(str(db_path))
-        self.conn.row_factory = sqlite3.Row
-        # Enable foreign key support in SQLite
-        self.conn.execute("PRAGMA foreign_keys = ON;")
+        self._local = threading.local()
         self._init_db()
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        if not hasattr(self._local, "conn"):
+            conn = sqlite3.connect(str(self.db_path))
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA busy_timeout = 30000;")
+            self._local.conn = conn
+        val = self._local.conn
+        assert isinstance(val, sqlite3.Connection)
+        return val
 
     def _init_db(self) -> None:
         """Initialize database schema and indexes."""
         with self.conn:
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS securities (
-                    symbol TEXT PRIMARY KEY,
-                    ticker TEXT NOT NULL,
+                    symbol TEXT PRIMARY KEY COLLATE NOCASE,
+                    ticker TEXT NOT NULL COLLATE NOCASE,
                     exchange TEXT NOT NULL,
                     name TEXT,
                     security_type TEXT NOT NULL,
@@ -66,8 +77,8 @@ class SecurityMaster:
             """)
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS ticker_mappings (
-                    ticker TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
+                    ticker TEXT NOT NULL COLLATE NOCASE,
+                    symbol TEXT NOT NULL COLLATE NOCASE,
                     exchange TEXT,
                     PRIMARY KEY (ticker, symbol),
                     FOREIGN KEY (symbol) REFERENCES securities (symbol) ON DELETE CASCADE
@@ -79,7 +90,9 @@ class SecurityMaster:
 
     def close(self) -> None:
         """Close the database connection."""
-        self.conn.close()
+        if hasattr(self._local, "conn"):
+            self._local.conn.close()
+            del self._local.conn
 
     def __enter__(self) -> Self:
         return self
@@ -91,7 +104,6 @@ class SecurityMaster:
         exc_tb: type | None,
     ) -> None:
         self.close()
-
 
     def _row_to_security(self, row: sqlite3.Row) -> Security:
         """Convert a database Row object to a Security struct."""
@@ -162,8 +174,9 @@ class SecurityMaster:
             # Register mapping for ticker -> symbol
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO ticker_mappings (ticker, symbol, exchange)
+                INSERT INTO ticker_mappings (ticker, symbol, exchange)
                 VALUES (?, ?, ?)
+                ON CONFLICT(ticker, symbol) DO UPDATE SET exchange=excluded.exchange
                 """,
                 (security.ticker, security.symbol, security.exchange),
             )

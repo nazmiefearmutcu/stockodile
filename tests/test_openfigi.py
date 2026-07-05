@@ -22,9 +22,7 @@ from stockodile.providers.openfigi.models import (
 class MockResponse:
     """Mock aiohttp client response context manager."""
 
-    def __init__(
-        self, status: int, body: bytes, headers: dict[str, str] | None = None
-    ) -> None:
+    def __init__(self, status: int, body: bytes, headers: dict[str, str] | None = None) -> None:
         self.status = status
         self._body = body
         self.headers = headers or {}

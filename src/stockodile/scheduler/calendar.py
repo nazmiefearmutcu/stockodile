@@ -26,16 +26,25 @@ def easter_date(year: int) -> datetime.date:
     return datetime.date(year, month, day)
 
 
-def nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> datetime.date:
+def nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> datetime.date | None:
     """Find the n-th occurrence of a weekday in a given month.
 
     weekday: 0 = Monday, ..., 6 = Sunday.
     n: 1-indexed (e.g. 1 for first occurrence, 3 for third, etc.).
     """
-    first_day = datetime.date(year, month, 1)
-    first_weekday = first_day.weekday()
-    days_to_first = (weekday - first_weekday) % 7
-    return datetime.date(year, month, 1 + days_to_first + (n - 1) * 7)
+    if n <= 0:
+        return None
+    try:
+        first_day = datetime.date(year, month, 1)
+        first_weekday = first_day.weekday()
+        days_to_first = (weekday - first_weekday) % 7
+        target_day = 1 + days_to_first + (n - 1) * 7
+        res = datetime.date(year, month, target_day)
+        if res.month != month:
+            return None
+        return res
+    except ValueError:
+        return None
 
 
 def last_weekday_of_month(year: int, month: int, weekday: int) -> datetime.date:
@@ -90,10 +99,15 @@ class USMarketCalendar:
             holidays.add(datetime.date(year, 12, 31))
 
         # 2. Martin Luther King Jr. Day (3rd Monday in Jan)
-        holidays.add(nth_weekday_of_month(year, 1, 0, 3))
+        if year >= 1998:
+            mlk = nth_weekday_of_month(year, 1, 0, 3)
+            if mlk is not None:
+                holidays.add(mlk)
 
         # 3. Washington's Birthday / Presidents' Day (3rd Monday in Feb)
-        holidays.add(nth_weekday_of_month(year, 2, 0, 3))
+        presidents = nth_weekday_of_month(year, 2, 0, 3)
+        if presidents is not None:
+            holidays.add(presidents)
 
         # 4. Good Friday (Friday before Easter)
         easter = easter_date(year)
@@ -103,16 +117,21 @@ class USMarketCalendar:
         holidays.add(last_weekday_of_month(year, 5, 0))
 
         # 6. Juneteenth National Independence Day (June 19, observed)
-        holidays.add(get_observed_holiday(year, 6, 19))
+        if year >= 2022:
+            holidays.add(get_observed_holiday(year, 6, 19))
 
         # 7. Independence Day (July 4, observed)
         holidays.add(get_observed_holiday(year, 7, 4))
 
         # 8. Labor Day (1st Monday in Sept)
-        holidays.add(nth_weekday_of_month(year, 9, 0, 1))
+        labor = nth_weekday_of_month(year, 9, 0, 1)
+        if labor is not None:
+            holidays.add(labor)
 
         # 9. Thanksgiving Day (4th Thursday in Nov)
-        holidays.add(nth_weekday_of_month(year, 11, 3, 4))
+        thanksgiving = nth_weekday_of_month(year, 11, 3, 4)
+        if thanksgiving is not None:
+            holidays.add(thanksgiving)
 
         # 10. Christmas Day (Dec 25, observed)
         holidays.add(get_observed_holiday(year, 12, 25))
@@ -127,9 +146,10 @@ class USMarketCalendar:
         """Check if the market closes early (1:00 PM Eastern) on the given date."""
         # 1. Day after Thanksgiving (Black Friday)
         thanksgiving = nth_weekday_of_month(date_val.year, 11, 3, 4)
-        black_friday = thanksgiving + datetime.timedelta(days=1)
-        if date_val == black_friday:
-            return True
+        if thanksgiving is not None:
+            black_friday = thanksgiving + datetime.timedelta(days=1)
+            if date_val == black_friday:
+                return True
 
         # 2. Christmas Eve (Dec 24) if it's a weekday and not an observed holiday
         if date_val.month == 12 and date_val.day == 24:

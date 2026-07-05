@@ -283,3 +283,119 @@ async def test_alpaca_run_connection_limit() -> None:
     provider._running = True
     with pytest.raises(RuntimeError, match="AlpacaProvider is already running"):
         await provider.run()
+
+
+def test_alpaca_normalize_bar_nulls() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = AlpacaProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+        key="test_key",
+        secret="test_secret",
+    )
+
+    # Bar with null vwap and trade count (thinly traded asset scenario)
+    raw_msg = [
+        {
+            "T": "b",
+            "S": "AAPL",
+            "o": 150.0,
+            "h": 151.0,
+            "l": 149.5,
+            "c": 150.5,
+            "v": 10000,
+            "vw": None,
+            "n": None,
+            "t": "2026-06-21T17:48:00Z",
+        }
+    ]
+
+    records = list(provider.normalize(raw_msg, local_ts=999))
+    assert len(records) == 1
+    bar = records[0]
+    assert isinstance(bar, Bar)
+    assert bar.vwap is None
+    assert bar.trade_count is None
+
+
+def test_alpaca_normalize_item_error_recovery() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = AlpacaProvider(
+        symbols=["AAPL"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+        key="test_key",
+        secret="test_secret",
+    )
+
+    # First item is malformed (missing 't' key), second is valid
+    raw_msg = [
+        {
+            "T": "t",
+            "S": "AAPL",
+            "p": 150.25,
+            "s": 100,
+            # missing "t"
+        },
+        {
+            "T": "t",
+            "S": "AAPL",
+            "p": 150.25,
+            "s": 100,
+            "t": "2026-06-21T17:48:18.123456789Z",
+        },
+    ]
+
+    records = list(provider.normalize(raw_msg, local_ts=999))
+    assert len(records) == 1
+    trade = records[0]
+    assert isinstance(trade, Trade)
+    assert trade.price == 150.25
+
+
+@pytest.mark.asyncio
+async def test_alpaca_fatal_auth_error() -> None:
+    from stockodile.providers.alpaca.connector import FatalProviderError
+
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = AlpacaProvider(
+        symbols=["AAPL"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+        key="test_key",
+        secret="test_secret",
+    )
+
+    greeting = b'[{"T":"success","msg":"connected"}]'
+    auth_failed = b'[{"T":"error","code":406,"msg":"auth failed"}]'
+    transport = MockTransport([greeting, auth_failed])
+    provider.transport = transport
+
+    with pytest.raises(FatalProviderError, match="Alpaca authentication failed"):
+        await provider._subscribe(transport)
+
+
+def test_alpaca_mid_session_warning() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = AlpacaProvider(
+        symbols=["AAPL"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+        key="test_key",
+        secret="test_secret",
+    )
+
+    # Mid-session error packet
+    raw_msg = [{"T": "error", "code": 405, "msg": "symbol limit exceeded"}]
+
+    with pytest.raises(ValueError, match="symbol limit exceeded"):
+        list(provider.normalize(raw_msg, local_ts=999))

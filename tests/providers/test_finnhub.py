@@ -155,3 +155,78 @@ async def test_finnhub_run_connection_limit() -> None:
     provider._running = True
     with pytest.raises(RuntimeError, match="FinnhubProvider is already running"):
         await provider.run()
+
+
+def test_finnhub_normalize_item_error_recovery() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = FinnhubProvider(
+        symbols=["AAPL"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+        token="test_token",
+    )
+
+    # First item is malformed (missing 'p' key), second is valid
+    raw_msg = {
+        "type": "trade",
+        "data": [
+            {
+                "s": "AAPL",
+                "v": 100,
+                "t": 1770000000123,
+                # missing "p"
+            },
+            {
+                "s": "AAPL",
+                "p": 150.25,
+                "v": 100,
+                "t": 1770000000123,
+            },
+        ],
+    }
+
+    records = list(provider.normalize(raw_msg, local_ts=999))
+    assert len(records) == 1
+    trade = records[0]
+    assert isinstance(trade, Trade)
+    assert trade.price == 150.25
+
+
+def test_finnhub_fatal_auth_error() -> None:
+    from stockodile.providers.finnhub.connector import FatalProviderError
+
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = FinnhubProvider(
+        symbols=["AAPL"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+        token="test_token",
+    )
+
+    # Error message from Finnhub indicating invalid token
+    raw_msg = {"type": "error", "msg": "Invalid API key/token"}
+
+    with pytest.raises(FatalProviderError, match="Finnhub authentication failed"):
+        list(provider.normalize(raw_msg, local_ts=999))
+
+
+def test_finnhub_mid_session_error() -> None:
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = FinnhubProvider(
+        symbols=["AAPL"],
+        channels=["trade"],
+        out=sink,
+        registry=registry,
+        token="test_token",
+    )
+
+    # Other WebSocket error
+    raw_msg = {"type": "error", "msg": "subscription limit exceeded"}
+
+    with pytest.raises(ValueError, match="subscription limit exceeded"):
+        list(provider.normalize(raw_msg, local_ts=999))

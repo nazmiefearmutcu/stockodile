@@ -82,9 +82,7 @@ class OrderBookSync:
         else:
             # Subsequent events — check continuity.
             if self._prev_u is None:
-                raise RuntimeError(
-                    "invariant violated: _prev_u is None with _have_first=True"
-                )
+                raise RuntimeError("invariant violated: _prev_u is None with _have_first=True")
             if self._venue == "spot":
                 if U == self._prev_u + 1:
                     self._prev_u = u
@@ -124,10 +122,12 @@ class BookResyncBridge:
         sync: OrderBookSync,
         fetch_snapshot: FetchSnapshotFn,
         symbol: str,
+        max_buffer_size: int = 5000,
     ) -> None:
         self._sync = sync
         self._fetch_snapshot = fetch_snapshot
         self._symbol = symbol
+        self._max_buffer_size = max_buffer_size
         self._resyncing: bool = False
         # Buffer of deltas accumulated during a resync window.
         self._buffer: list[BookDelta] = []
@@ -182,13 +182,17 @@ class BookResyncBridge:
                 self._buffer = []
             else:
                 log.warning(
-                    "BookResyncBridge [%s]: RESYNC triggered at seq=%s; "
-                    "entering resync mode.",
+                    "BookResyncBridge [%s]: RESYNC triggered at seq=%s; entering resync mode.",
                     self._symbol,
                     delta.seq_id,
                 )
                 self._resyncing = True
             # Buffer the triggering delta — it may be valid post-resync.
+            if len(self._buffer) >= self._max_buffer_size:
+                raise RuntimeError(
+                    f"BookResyncBridge [{self._symbol}]: buffer size "
+                    f"exceeded max limit of {self._max_buffer_size}"
+                )
             self._buffer.append(delta)
             return None
 
@@ -197,6 +201,11 @@ class BookResyncBridge:
             # deltas are emitted as-is after seq-filtering on complete_resync();
             # the sync machine is re-anchored to snap_seq but the kept deltas
             # bypass it.
+            if len(self._buffer) >= self._max_buffer_size:
+                raise RuntimeError(
+                    f"BookResyncBridge [{self._symbol}]: buffer size "
+                    f"exceeded max limit of {self._max_buffer_size}"
+                )
             self._buffer.append(delta)
             return None
 
@@ -213,6 +222,11 @@ class BookResyncBridge:
         deltas that arrive *after* RESYNC was signalled but *before*
         ``complete_resync()`` has finished.
         """
+        if len(self._buffer) >= self._max_buffer_size:
+            raise RuntimeError(
+                f"BookResyncBridge [{self._symbol}]: buffer size "
+                f"exceeded max limit of {self._max_buffer_size}"
+            )
         self._buffer.append(delta)
 
     # ------------------------------------------------------------------
@@ -244,20 +258,17 @@ class BookResyncBridge:
         )
 
         # Update the sync state machine with the new snapshot anchor.
-        if snap_seq is not None:
-            self._sync.set_snapshot(last_update_id=snap_seq)
-        else:
-            log.warning(
-                "BookResyncBridge [%s]: REST snapshot has sequence_id=None; "
-                "sync state machine NOT re-anchored (stale anchor retained). "
-                "All buffered deltas will be kept and continuity may be wrong.",
-                self._symbol,
+        if snap_seq is None:
+            raise RuntimeError(
+                f"BookResyncBridge [{self._symbol}]: REST snapshot is missing a valid sequence_id"
             )
+
+        self._sync.set_snapshot(last_update_id=snap_seq)
 
         venue = getattr(self._sync, "_venue", "spot")
         kept_deltas: list[BookDelta] = []
         for delta in self._buffer:
-            if snap_seq is None or delta.seq_id is None:
+            if delta.seq_id is None:
                 kept_deltas.append(delta)
             elif venue == "futures":
                 # Keep when seq_id >= snap_seq (boundary inclusive)
@@ -281,6 +292,72 @@ class BookResyncBridge:
                         delta.seq_id,
                         snap_seq,
                     )
+
+        # Validate sequence continuity of kept deltas
+        from stockodile.replay.orderbook import BookGap
+
+        if kept_deltas:
+            first_delta = kept_deltas[0]
+            if venue == "futures":
+                first_prev_seq = first_delta.prev_seq_id
+                first_seq = first_delta.seq_id
+                if first_prev_seq is None or first_seq is None:
+                    raise RuntimeError(
+                        "Futures delta is missing sequence IDs: "
+                        f"prev={first_prev_seq}, seq={first_seq}"
+                    )
+                if not (first_prev_seq < snap_seq <= first_seq):
+                    raise BookGap(
+                        "First kept futures delta does not cover snapshot boundary: "
+                        f"prev_seq_id={first_prev_seq} < snap_seq={snap_seq} "
+                        f"<= seq_id={first_seq}"
+                    )
+            else:
+                # spot
+                first_seq = first_delta.seq_id
+                if first_seq is None:
+                    raise RuntimeError("Spot delta is missing seq_id")
+                if first_seq != snap_seq + 1:
+                    raise BookGap(
+                        f"First kept spot delta does not cover snapshot boundary: "
+                        f"seq_id={first_seq}, expected={snap_seq + 1}"
+                    )
+
+            # Check subsequent deltas
+            prev_delta = first_delta
+            for delta in kept_deltas[1:]:
+                if venue == "futures":
+                    curr_prev_seq = delta.prev_seq_id
+                    curr_seq = delta.seq_id
+                    prev_seq = prev_delta.seq_id
+                    if curr_prev_seq is None or curr_seq is None or prev_seq is None:
+                        raise RuntimeError(
+                            "Futures delta is missing sequence IDs: "
+                            f"prev={curr_prev_seq}, seq={curr_seq}"
+                        )
+                    if curr_prev_seq != prev_seq:
+                        raise BookGap(
+                            "Discontinuous kept futures deltas: "
+                            f"prev_seq_id={curr_prev_seq} "
+                            f"!= prev_delta.seq_id={prev_seq}"
+                        )
+                else:
+                    # spot
+                    curr_seq = delta.seq_id
+                    prev_seq = prev_delta.seq_id
+                    if curr_seq is None or prev_seq is None:
+                        raise RuntimeError("Spot delta is missing seq_id")
+                    if curr_seq != prev_seq + 1:
+                        raise BookGap(
+                            "Discontinuous kept spot deltas: "
+                            f"seq_id={curr_seq} "
+                            f"!= prev_delta.seq_id + 1={prev_seq + 1}"
+                        )
+                prev_delta = delta
+
+            # Advance the sync machine pointers to match the last of the kept_deltas
+            self._sync._have_first = True
+            self._sync._prev_u = kept_deltas[-1].seq_id
 
         # Clear state
         self._buffer = []
@@ -329,6 +406,7 @@ class TradeSeqGap:
                     self._last_seq + 1,
                     trade_seq,
                 )
+                return True
             else:
                 log.warning(
                     "TradeSeqGap: gap detected — expected seq=%d, got seq=%d (skipped %d).",

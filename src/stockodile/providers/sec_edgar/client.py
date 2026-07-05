@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import AsyncGenerator, Generator, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,43 @@ import aiohttp
 import msgspec
 
 from stockodile.ratelimit import TokenBucketLimiter
+from stockodile.schema.enums import FundPeriod
 from stockodile.schema.records import Filing, Fundamental
+
+
+def _safe_float(val: Any) -> float:
+    if val is None:
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _parse_zip_chunk(
+    zip_path: str | Path, filenames: list[str]
+) -> list[tuple[int, dict[str, Any]]]:
+    import zipfile
+
+    import msgspec
+
+    results = []
+    with zipfile.ZipFile(zip_path, "r") as z:
+        for name in filenames:
+            basename = os.path.basename(name)
+            cik_str = basename.replace(".json", "").replace("CIK", "")
+            try:
+                cik = int(cik_str)
+            except ValueError:
+                continue
+            try:
+                with z.open(name) as f:
+                    content = f.read()
+                    data = msgspec.json.decode(content)
+                results.append((cik, data))
+            except Exception:
+                continue
+    return results
 
 
 class SecEdgarClient:
@@ -42,7 +78,8 @@ class SecEdgarClient:
 
     def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(total=60.0, connect=10.0, sock_read=30.0)
+            self.session = aiohttp.ClientSession(timeout=timeout)
         return self.session
 
     async def close(self) -> None:
@@ -50,18 +87,22 @@ class SecEdgarClient:
         if self.session is not None and not self.session.closed:
             await self.session.close()
 
-    async def _request(self, url: str) -> aiohttp.ClientResponse:
+    async def _request(
+        self, url: str, client_timeout: aiohttp.ClientTimeout | None = None
+    ) -> aiohttp.ClientResponse:
         attempts = 0
         while True:
             await self._limiter.acquire()
             headers = {"User-Agent": self.user_agent}
             try:
                 session = self._get_session()
-                resp = await session.get(url, headers=headers)
+                resp = await session.get(url, headers=headers, timeout=client_timeout)
                 if resp.status in (403, 429):
                     attempts += 1
                     if attempts > 5:
+                        resp.close()
                         resp.raise_for_status()
+                    resp.close()
                     # Exponential backoff
                     delay = min(30.0, 1.0 * (2**attempts))
                     await asyncio.sleep(delay)
@@ -156,9 +197,11 @@ class SecEdgarClient:
         for i in range(len(accession_numbers)):
             accn = accession_numbers[i]
             accn_no_dashes = accn.replace("-", "")
-            doc = primary_documents[i]
+            doc = primary_documents[i] if i < len(primary_documents) else ""
             doc_url = (
                 f"https://www.sec.gov/Archives/edgar/data/{cik}/{accn_no_dashes}/{doc}"
+                if doc
+                else ""
             )
 
             filings.append(
@@ -169,8 +212,8 @@ class SecEdgarClient:
                     source_ts=None,
                     local_ts=local_ts,
                     accession_number=accn,
-                    form=forms[i],
-                    filing_date=filing_dates[i],
+                    form=forms[i] if i < len(forms) else "",
+                    filing_date=filing_dates[i] if i < len(filing_dates) else "",
                     report_date=report_dates[i] if i < len(report_dates) else None,
                     primary_document=doc,
                     document_url=doc_url,
@@ -210,9 +253,7 @@ class SecEdgarClient:
                 if filename:
                     url_hist = f"https://data.sec.gov/submissions/{filename}"
                     hist_data = await self._request_json(url_hist)
-                    filings.extend(
-                        self._parse_filing_dict(hist_data, symbol_upper, cik, local_ts)
-                    )
+                    filings.extend(self._parse_filing_dict(hist_data, symbol_upper, cik, local_ts))
 
         return filings
 
@@ -226,6 +267,13 @@ class SecEdgarClient:
                 units = tag_data.get("units", {})
                 for unit, values in units.items():
                     for val_obj in values:
+                        fp_str = val_obj.get("fp")
+                        fp = None
+                        if fp_str is not None:
+                            try:
+                                fp = FundPeriod(fp_str)
+                            except ValueError:
+                                pass
                         yield Fundamental(
                             provider="sec_edgar",
                             symbol=symbol,
@@ -235,11 +283,11 @@ class SecEdgarClient:
                             taxonomy=taxonomy,
                             tag=tag,
                             unit=unit,
-                            val=float(val_obj.get("val", 0.0)),
+                            val=_safe_float(val_obj.get("val")),
                             end=val_obj.get("end", ""),
                             start=val_obj.get("start"),
                             fy=val_obj.get("fy"),
-                            fp=val_obj.get("fp"),
+                            fp=fp,
                             form=val_obj.get("form"),
                             filed=val_obj.get("filed"),
                             accn=val_obj.get("accn"),
@@ -263,9 +311,7 @@ class SecEdgarClient:
                         deduped[key] = fact
         return list(deduped.values())
 
-    async def get_fundamentals(
-        self, symbol: str, deduplicate: bool = True
-    ) -> list[Fundamental]:
+    async def get_fundamentals(self, symbol: str, deduplicate: bool = True) -> list[Fundamental]:
         """Get fundamental facts for a company by symbol or CIK.
 
         Args:
@@ -293,18 +339,42 @@ class SecEdgarClient:
     async def download_company_facts_zip(self, dest_path: str | Path) -> None:
         """Download the bulk company facts ZIP file."""
         url = "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip"
-        resp = await self._request(url)
+        dest_path = Path(dest_path)
+        tmp_path = dest_path.with_suffix(dest_path.suffix + ".tmp")
+
+        # Override session default timeout with a larger timeout for the bulk download
+        timeout = aiohttp.ClientTimeout(total=1800.0, connect=15.0, sock_read=60.0)
+        resp = await self._request(url, client_timeout=timeout)
         try:
             resp.raise_for_status()
-            with open(dest_path, "wb") as f:  # noqa: ASYNC230
-                async for chunk in resp.content.iter_chunked(8192):
-                    f.write(chunk)
+
+            def _write_chunks(file_obj: Any, data_bytes: bytes) -> None:
+                file_obj.write(data_bytes)
+
+            with open(tmp_path, "wb") as f:  # noqa: ASYNC230
+                buffer = bytearray()
+                async for chunk in resp.content.iter_chunked(65536):
+                    buffer.extend(chunk)
+                    if len(buffer) >= 1024 * 1024:
+                        await asyncio.to_thread(_write_chunks, f, bytes(buffer))
+                        buffer.clear()
+                if buffer:
+                    await asyncio.to_thread(_write_chunks, f, bytes(buffer))
+
+            tmp_path.rename(dest_path)
+        except Exception:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+            raise
         finally:
             resp.close()
 
-    def parse_company_facts_zip(
+    async def parse_company_facts_zip(
         self, zip_path: str | Path, deduplicate: bool = True
-    ) -> Generator[Fundamental, None, None]:
+    ) -> AsyncGenerator[Fundamental, None]:
         """Parse a bulk company facts ZIP file and yield Fundamental records.
 
         Args:
@@ -314,29 +384,22 @@ class SecEdgarClient:
         import zipfile
 
         local_ts = time.time_ns()
-        with zipfile.ZipFile(zip_path, "r") as z:
-            for info in z.infolist():
-                if not info.filename.endswith(".json"):
-                    continue
 
-                basename = os.path.basename(info.filename)
-                cik_str = basename.replace(".json", "").replace("CIK", "")
-                try:
-                    cik = int(cik_str)
-                except ValueError:
-                    continue
+        def _get_filenames(path: str | Path) -> list[str]:
+            with zipfile.ZipFile(path, "r") as z:
+                return [info.filename for info in z.infolist() if info.filename.endswith(".json")]
 
-                with z.open(info) as f:
-                    try:
-                        content = f.read()
-                        data = msgspec.json.decode(content)
-                    except Exception:
-                        continue
+        filenames = await asyncio.to_thread(_get_filenames, zip_path)
 
-                    raw_facts = self._normalize_facts(cik, data, local_ts)
-                    if deduplicate:
-                        for fact in self._deduplicate_facts(raw_facts):
-                            yield fact
-                    else:
-                        for fact in raw_facts:
-                            yield fact
+        chunk_size = 100
+        for i in range(0, len(filenames), chunk_size):
+            chunk = filenames[i : i + chunk_size]
+            parsed_chunk = await asyncio.to_thread(_parse_zip_chunk, zip_path, chunk)
+            for cik, data in parsed_chunk:
+                raw_facts = self._normalize_facts(cik, data, local_ts)
+                if deduplicate:
+                    for fact in self._deduplicate_facts(raw_facts):
+                        yield fact
+                else:
+                    for fact in raw_facts:
+                        yield fact

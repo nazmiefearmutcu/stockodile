@@ -118,8 +118,7 @@ class OpenFigiClient:
         batch_size = 100
         pending_jobs = [jobs[idx] for idx in pending_indices]
         batches = [
-            pending_jobs[i : i + batch_size]
-            for i in range(0, len(pending_jobs), batch_size)
+            pending_jobs[i : i + batch_size] for i in range(0, len(pending_jobs), batch_size)
         ]
 
         # 3. Execute all batches concurrently (under TokenBucketLimiter control)
@@ -138,9 +137,7 @@ class OpenFigiClient:
 
         return [res for res in output if res is not None]
 
-    async def _execute_batch(
-        self, batch_jobs: list[OpenFigiJob]
-    ) -> list[list[FigiRecord]]:
+    async def _execute_batch(self, batch_jobs: list[OpenFigiJob]) -> list[list[FigiRecord]]:
         """Execute a single batch request to OpenFIGI API with rate limit respect and retries."""
         headers = {
             "Content-Type": "application/json",
@@ -180,9 +177,7 @@ class OpenFigiClient:
                 ) as response:
                     if response.status == 200:
                         body = await response.read()
-                        response_data = msgspec.json.decode(
-                            body, type=list[OpenFigiResponseItem]
-                        )
+                        response_data = msgspec.json.decode(body, type=list[OpenFigiResponseItem])
 
                         results: list[list[FigiRecord]] = []
                         for resp_item in response_data:

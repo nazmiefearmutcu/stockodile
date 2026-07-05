@@ -1,0 +1,264 @@
+/*
+ * Stockodile x402 Micropayments Portal
+ * Premium Visual Redesign & Enhancements
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+    --bg-base: #030712;
+    --bg-panel: rgba(17, 24, 39, 0.6);
+    --bg-card: rgba(31, 41, 55, 0.4);
+    --border-color: rgba(255, 255, 255, 0.05);
+    --border-hover: rgba(6, 182, 212, 0.4);
+    
+    --text-primary: #f9fafb;
+    --text-secondary: #9ca3af;
+    --text-muted: #6b7280;
+    
+    --accent-cyan: #06b6d4;
+    --accent-cyan-glow: rgba(6, 182, 212, 0.15);
+    --accent-emerald: #10b981;
+    --accent-emerald-glow: rgba(16, 185, 129, 0.15);
+    --accent-amber: #f59e0b;
+    --accent-amber-glow: rgba(245, 158, 11, 0.15);
+    --accent-rose: #f43f5e;
+    --accent-rose-glow: rgba(244, 63, 94, 0.15);
+    --accent-indigo: #6366f1;
+    --accent-indigo-glow: rgba(99, 102, 241, 0.15);
+}
+
+/* Base resets & layout */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: radial-gradient(circle at 50% 0%, #0d1530 0%, var(--bg-base) 80%) no-repeat;
+    background-attachment: fixed;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+}
+
+/* Premium ambient glow backdrops */
+body::before {
+    content: '';
+    position: fixed;
+    top: -10%;
+    left: -10%;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.06) 0%, transparent 70%);
+    z-index: -2;
+    pointer-events: none;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    bottom: -10%;
+    right: -10%;
+    width: 70%;
+    height: 70%;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.06) 0%, transparent 70%);
+    z-index: -2;
+    pointer-events: none;
+}
+
+/* Headings */
+h1, h2, h3, h4 {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+/* Custom premium scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(3, 7, 18, 0.4);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-cyan);
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+/* Glassmorphism panel cards */
+.panel, .sim-card {
+    background: var(--bg-panel) !important;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color) !important;
+    border-radius: 20px !important;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5) !important;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.panel:hover, .sim-card:hover {
+    border-color: var(--border-hover) !important;
+    box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6), 0 0 40px -10px var(--accent-cyan-glow) !important;
+    transform: translateY(-3px);
+}
+
+/* Stat Cards */
+.stat-card {
+    background: rgba(3, 7, 18, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.03) !important;
+    border-radius: 14px;
+    padding: 16px 20px !important;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.5), inset 0 2px 4px 0 rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Custom button designs */
+button, .btn {
+    border-radius: 12px !important;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+button:hover:not(:disabled), .btn:hover:not(.disabled) {
+    transform: translateY(-2px);
+    filter: brightness(1.15);
+}
+
+button:active:not(:disabled), .btn:active:not(.disabled) {
+    transform: translateY(0);
+}
+
+button:disabled, .btn.disabled {
+    cursor: not-allowed !important;
+    opacity: 0.6;
+}
+
+
+/* Form controls */
+input[type=text], input[type=number], select, textarea, pre {
+    background-color: rgba(3, 7, 18, 0.5) !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-radius: 12px !important;
+    color: var(--text-primary) !important;
+    outline: none;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus, pre:focus {
+    border-color: var(--accent-cyan) !important;
+    box-shadow: 0 0 0 4px var(--accent-cyan-glow) !important;
+    background-color: rgba(3, 7, 18, 0.7) !important;
+}
+
+/* Custom interactive steps */
+.step-info .step-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.02);
+    border: 2px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.step-info.active .step-icon {
+    border-color: var(--accent-cyan) !important;
+    color: var(--accent-cyan) !important;
+    box-shadow: 0 0 15px var(--accent-cyan-glow);
+}
+
+/* Live indicators */
+.status-pulse {
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-emerald);
+    border-radius: 50%;
+    display: inline-block;
+    box-shadow: 0 0 10px var(--accent-emerald);
+    animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse-ring {
+    0% { transform: scale(0.9); opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { transform: scale(1.2); opacity: 0.5; box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.9); opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Table overrides */
+table th {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* SSE Console Logs styling */
+#sse-log-console {
+    background: rgba(3, 7, 18, 0.8) !important;
+    border-radius: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+/* CSS variables helper classes for JS logs */
+.text-sky-400 { color: var(--accent-cyan) !important; }
+.text-emerald-400 { color: var(--accent-emerald) !important; }
+.text-red-400 { color: var(--accent-rose) !important; }
+.text-yellow-400 { color: var(--accent-amber) !important; }
+
+/* Custom Checkbox Styling to match premium dark theme */
+#sse-autoscroll-chk {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: #020617;
+    border: 1px solid #1e293b;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    display: inline-block;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+#sse-autoscroll-chk:checked {
+    background-color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+}
+
+#sse-autoscroll-chk:checked::after {
+    content: '\2713';
+    font-size: 10px;
+    color: #ffffff;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-weight: bold;
+}

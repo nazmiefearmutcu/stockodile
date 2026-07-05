@@ -31,8 +31,8 @@ from stockodile.schema.records import (
 _NEG_INF: int = -1
 
 
-def _sort_key(record: Record) -> tuple[int, int, int]:
-    """Return the (local_ts, source_ts_or_neg_inf, seq_or_0) tuple for ordering.
+def _sort_key(record: Record) -> tuple[int, int, int, str, str]:
+    """Return the (local_ts, source_ts_or_neg_inf, seq_or_0, provider, symbol) tuple for ordering.
 
     NULL source_ts → -1 (sorts BEFORE any real nanosecond timestamp).
     seq is extracted from whichever field is present on the record type:
@@ -51,7 +51,7 @@ def _sort_key(record: Record) -> tuple[int, int, int]:
     else:
         seq = 0
 
-    return (local_ts, source_ts, seq)
+    return (local_ts, source_ts, seq, record.provider, record.symbol)
 
 
 class _Keyed:
@@ -60,7 +60,7 @@ class _Keyed:
     __slots__ = ("key", "record")
 
     def __init__(self, record: Record) -> None:
-        self.key: tuple[int, int, int] = _sort_key(record)
+        self.key: tuple[int, int, int, str, str] = _sort_key(record)
         self.record: Record = record
 
     def __lt__(self, other: Any) -> bool:

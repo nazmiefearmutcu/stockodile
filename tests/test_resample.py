@@ -224,9 +224,7 @@ def test_resample_trades_df() -> None:
     assert res.row(0, named=True)["open"] == 150.0
     assert res.row(0, named=True)["close"] == 152.0
     assert res.row(0, named=True)["volume"] == 30.0
-    assert res.row(0, named=True)["vwap"] == pytest.approx(
-        (150.0 * 10.0 + 152.0 * 20.0) / 30.0
-    )
+    assert res.row(0, named=True)["vwap"] == pytest.approx((150.0 * 10.0 + 152.0 * 20.0) / 30.0)
     assert res.row(0, named=True)["trade_count"] == 2
 
     assert res.row(1, named=True)["bar"] == 1_000_000_000
@@ -344,18 +342,111 @@ def test_resample_book_snapshots() -> None:
     assert len(snapshots) == 2
 
     # First snapshot boundary at 1_000_000_000 ns
-    # Captures state after local_ts=1_200_000_000 delta has been applied
+    # Captures state before local_ts=1_200_000_000 delta has been applied
     snap1 = snapshots[0]
     assert snap1.local_ts == 1_000_000_000
-    assert snap1.bids == [(150.0, 12.0)]
-    assert snap1.asks == [(152.0, 25.0), (153.0, 30.0)]
+    assert snap1.bids == [(150.0, 12.0), (149.0, 20.0)]
+    assert snap1.asks == [(152.0, 25.0)]
 
     # Second snapshot boundary at 2_000_000_000 ns
-    # Captures state after local_ts=2_200_000_000 delta has been applied
+    # Captures state before local_ts=2_200_000_000 delta has been applied
     snap2 = snapshots[1]
     assert snap2.local_ts == 2_000_000_000
     assert snap2.bids == [(150.0, 12.0)]
     assert snap2.asks == [(152.0, 25.0), (153.0, 30.0)]
+
+
+def test_resample_unsorted_streams() -> None:
+    # Test that ValueError is raised for unsorted streams
+    trades = [
+        Trade(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=500_000_000,
+            id="1",
+            price=150.0,
+            size=10.0,
+        ),
+        Trade(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=100_000_000,
+            id="2",
+            price=152.0,
+            size=20.0,
+        ),  # unsorted!
+    ]
+    with pytest.raises(ValueError):
+        list(resample_trades_to_bars(trades, "1s"))
+
+    quotes = [
+        Quote(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=500_000_000,
+            bid_px=150.0,
+            bid_sz=10.0,
+            ask_px=151.0,
+            ask_sz=10.0,
+        ),
+        Quote(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=100_000_000,
+            bid_px=152.0,
+            bid_sz=20.0,
+            ask_px=153.0,
+            ask_sz=10.0,
+        ),  # unsorted!
+    ]
+    with pytest.raises(ValueError):
+        list(resample_quotes_to_bars(quotes, "1s"))
+
+
+def test_resample_timestamp_units() -> None:
+    # Test that millisecond timestamps are scaled correctly
+    # 1782060000000 ms is 2026-06-21.
+    base_ms = 1782060000000
+    trades = [
+        Trade(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=base_ms + 100_000,
+            id="1",
+            price=150.0,
+            size=10.0,
+        ),  # base + 100s
+        Trade(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=base_ms + 250_000,
+            id="2",
+            price=152.0,
+            size=20.0,
+        ),  # base + 250s
+        Trade(
+            provider="alpaca",
+            symbol="AAPL",
+            symbol_raw="AAPL",
+            local_ts=base_ms + 350_000,
+            id="3",
+            price=151.0,
+            size=15.0,
+        ),  # base + 350s
+    ]
+    # interval "5m" = 300s. 300s in ms is 300,000 ms.
+    # first bucket is [base_ms, base_ms + 300_000) -> contains base + 100k, base + 250k.
+    # second bucket is [base_ms + 300_000, base_ms + 600_000) -> contains base + 350k.
+    bars = list(resample_trades_to_bars(trades, "5m"))
+    assert len(bars) == 2
+    assert bars[0].local_ts == base_ms
+    assert bars[1].local_ts == base_ms + 300_000
 
 
 def test_resample_book_snapshots_gaps() -> None:
@@ -441,7 +532,5 @@ def test_resample_ohlcv_catalog() -> None:
         assert res.row(0, named=True)["open"] == 150.0
         assert res.row(0, named=True)["close"] == 152.0
         assert res.row(0, named=True)["volume"] == 30.0
-        assert res.row(0, named=True)["vwap"] == pytest.approx(
-            (150.0 * 10.0 + 152.0 * 20.0) / 30.0
-        )
+        assert res.row(0, named=True)["vwap"] == pytest.approx((150.0 * 10.0 + 152.0 * 20.0) / 30.0)
         assert res.row(0, named=True)["trade_count"] == 2
