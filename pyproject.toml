@@ -1,6 +1,6 @@
 [project]
 name = "stockodile"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open-source US-equity market-data engine: ingest, normalize, store, retrieve anywhere."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -19,10 +19,11 @@ dependencies = [
     "web3>=6.0.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]
-stockodile = "stockodile.cli:app"
+stockodile = "stockodile.cli:main"
 
 [dependency-groups]
 dev = [

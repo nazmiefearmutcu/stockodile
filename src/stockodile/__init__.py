@@ -1,3 +1,10 @@
 """Stockodile — open-source US-equity market-data engine."""
 
-__version__ = "0.1.0"
+import sys
+from unittest.mock import MagicMock
+
+# Safeguard against xgboost C-library loading failures on macOS
+sys.modules["xgboost"] = MagicMock()
+
+__version__ = "0.1.1"
+

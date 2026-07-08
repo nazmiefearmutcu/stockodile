@@ -96,15 +96,22 @@ uv run stockodile resample --symbol AAPL --interval 5m
 
 We enforce a strict coding standard: **mypy strict mode** type safety and **ruff** linting.
 
-```bash
 # Run the complete test suite
 uv run pytest
+```
 
+### 🍏 macOS Apple Silicon & Headless Runs Optimization
+To ensure reliable operation on modern macOS Apple Silicon devices:
+* **Apple Silicon OpenMP/OpenBLAS Thread Limits**: Programmatic thread limit overrides (`OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, etc.) are configured globally in [tests/conftest.py](file:///Users/nazmi/Desktop/Stockodile/tests/conftest.py) to prevent process thread-group lockups.
+* **Global CLI Path Resolution**: The CLI shebang and library search paths are configured to automatically resolve package routes, enabling instant execution of the global `stockodile` command line.
+
+```bash
 # Check code formatting & linting
 uv run ruff check src tests
 
 # Check strict type safety
 uv run mypy src tests
+
 ```
 
 ---
