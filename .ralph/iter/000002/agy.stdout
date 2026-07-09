@@ -1,0 +1,65 @@
+I will start by checking the contents of the repository root directory to orient ourselves.
+I will check the contents of the `.ralph` directory to understand the metadata and files used by the self-improvement loop.
+I will read `.ralph/RATCHET.json` to see what metrics we need to respect and preserve/improve.
+I will check the contents of the `.ralph/metrics` directory.
+I will read `.ralph/LEDGER.md` to see the current state of work items.
+I will read `.ralph/PROGRESS.md` to see the log of previous iterations.
+I will list files in the `src` directory to inspect the layout of the package.
+I will list files in `src/stockodile` directory to see the modules in the package.
+I will list files in the `tests` directory.
+I will list the current permissions to see what actions we are permitted to perform.
+I will run `git status` to see the current state of the repository.
+I will run `git log` to see the commit history and check what the latest commits are.
+I will check if the files in `src/stockodile/coverage` are actually on disk or if they are deleted.
+I will check if the files exist in the Git HEAD commit.
+I will show the stat of the HEAD commit to see what changes were made in it.
+I will run `git fsck` to diagnose the Git repository issues.
+I will check the status of `git fsck` command.
+I will list the files in `.ralph/.canonical` directory.
+I will list the files in `.ralph/iterations`.
+I will read `.ralph/iterations/000001.json` to see details about the previous iteration.
+I will try to restore the files in the working directory using `git restore .`.
+I will list the `.ralph/iter` directory to check if there are backup artifacts or cached states we can use.
+I will list the files in `.ralph/iter/000000`.
+I will list the files in `.ralph/iter/000001`.
+I will check git remote to see if there is an upstream or local repository cache.
+I will read `.ralph/iter/000001/cand.verify.1.log` to understand what verification steps failed or what was executed.
+I will read `.ralph/iter/000001/cand.verify.2.log` to see the second verify log.
+I will run `git log --all --graph --oneline` to view all branches and commits in the git history.
+I will read the `git fsck` output from the task log to see what exactly is corrupted in Git.
+I will list `/Users/nazmi/Desktop` to see if there is another clone or temporary files.
+I will run `git fetch` in standard sandbox mode to see if it succeeds.
+I will check the status of `git fetch --all`.
+I will run `git update-ref` to delete the corrupted stash reference.
+I will delete the other invalid references.
+I will run `git fsck` to see what invalid references or objects remain.
+I will run `git fetch origin` now that the invalid refs have been removed to see if we can fetch the missing objects.
+I will run `git status` to see the repository state after the successful fetch.
+I will resolve the commit ID of `origin/main`.
+I will reset the repository hard to `origin/main` (which is `74f8c0fa`, the clean parent commit before iteration 1 failed and was reverted).
+I will check the git status now to confirm the working directory is clean.
+I will list the root directory contents again to verify that the files have been restored to the working directory.
+I will list the `tests` directory to confirm the test files are there.
+I will read the `pyproject.toml` file to see how testing and verification commands are configured.
+I will run `make verify` in sandboxed mode to see if it is defined (perhaps via a hidden or untracked Makefile, or maybe git checkout restored one).
+I will run `git ls-files` to see all tracked files in the repository.
+I will read `.ralph/iter/000001/meta.json` to see how the verification run is structured by the harness.
+I will read `.ralph/iter/000001/decision.json` to see how the harness records verification results.
+I will read `.ralph/iter/000001/trailer.json`.
+I will search the `.ralph` directory for the word `verify` to see if the command/script is documented or stored there.
+I will run `git status --ignored` to see if a Makefile is ignored by git.
+I will search the git history to see if a Makefile was ever tracked and deleted.
+I will read `.ralph/progress.ndjson` to see if there is any execution metadata or history.
+I will try viewing `/Users/nazmi/Desktop/Stockodile/.ralph/progress.ndjson` again, verifying the path.
+I will list `.ralph` again to see the current files.
+I will run `git log` to see the commit history of the restored repository.
+I will list the `.ralph/archive` directory to see if the files are stored there.
+I will read `.ralph/iterations/000000.json` to see details about iteration 0.
+I will list `.ralph/iterations` again to see what files exist.
+I will read `.gitignore` to see if `.ralph` is ignored.
+I will check if there are tracked files inside `.ralph` in the `origin/main` commit.
+I will run `pytest` to see if the current test suite passes on the clean `origin/main` state.
+I will check the status of `pytest` to see if tests are passing.
+I will read the pytest task log to check the test results.
+I will run `pytest` with a longer wait duration to get the output synchronously.
+Error: timeout waiting for response

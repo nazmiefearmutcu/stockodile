@@ -1,0 +1,346 @@
+EEE.E.................EEEEEEE...........FFF..E....EE.............E.FE... [ 22%]
+.EEF.................................................................... [ 44%]
+...................................................................+++++++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Captured stdout ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+--- Running Stockodile Live Proof Test ---
+Step 1: Instantiating YahooClient and fetching live data for AAPL (2026-06-01 to 2026-06-05)...
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of asyncio_0 (6434287616) ~~~~~~~~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-34_4 (481237839872) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-34_3 (481221013504) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-34_2 (481204187136) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-34_1 (481187360768) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-34_0 (6266023936) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-32_4 (481893281792) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-32_3 (481876455424) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-32_2 (481859629056) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-32_1 (481758670848) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-32_0 (481741844480) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-25_4 (481842802688) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-25_3 (481825976320) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-25_2 (481809149952) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-25_1 (481792323584) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-25_0 (481775497216) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-14_2 (6249197568) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-14_1 (6232371200) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-14_0 (481523101696) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-13_2 (481506275328) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-13_1 (481489448960) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-13_0 (481472622592) ~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-6_1 (6417461248) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-6_0 (6400634880) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-5_2 (6350155776) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-5_1 (6333329408) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-5_0 (6316503040) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~~~~~~~ Stack of ThreadPoolExecutor-0_0 (6215544832) ~~~~~~~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/concurrent/futures/thread.py", line 90, in _worker
+    work_item = work_queue.get(block=True)
+~~~~~~~~~~~ Stack of Thread-2 (_run_safe_shutdown_loop) (6198718464) ~~~~~~~~~~~
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1014, in _bootstrap
+    self._bootstrap_inner()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 1043, in _bootstrap_inner
+    self.run()
+  File "/opt/homebrew/anaconda3/lib/python3.13/threading.py", line 994, in run
+    self._target(*self._args, **self._kwargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pycares/__init__.py", line 348, in _run_safe_shutdown_loop
+    channel = self._queue.get()
+~~~~~~~~~~~~~~~~~~~~~~~ Stack of MainThread (8292296704) ~~~~~~~~~~~~~~~~~~~~~~~
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest/__main__.py", line 9, in <module>
+    raise SystemExit(pytest.console_main())
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/config/__init__.py", line 223, in console_main
+    code = main()
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/config/__init__.py", line 199, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/main.py", line 365, in pytest_cmdline_main
+    return wrap_session(config, _main)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/main.py", line 318, in wrap_session
+    session.exitstatus = doit(config, session) or 0
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/main.py", line 372, in _main
+    config.hook.pytest_runtestloop(session=session)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/main.py", line 396, in pytest_runtestloop
+    item.config.hook.pytest_runtest_protocol(item=item, nextitem=nextitem)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/runner.py", line 118, in pytest_runtest_protocol
+    runtestprotocol(item, nextitem=nextitem)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/runner.py", line 137, in runtestprotocol
+    reports.append(call_and_report(item, "call", log))
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/runner.py", line 244, in call_and_report
+    call = CallInfo.from_call(
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/runner.py", line 353, in from_call
+    result: TResult | None = func()
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/runner.py", line 245, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/runner.py", line 179, in pytest_runtest_call
+    item.runtest()
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py", line 569, in runtest
+    super().runtest()
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/python.py", line 1720, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_hooks.py", line 513, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pluggy/_callers.py", line 103, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/_pytest/python.py", line 166, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py", line 905, in inner
+    runner.run(coro, context=context)
+  File "/opt/homebrew/anaconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "/opt/homebrew/anaconda3/lib/python3.13/asyncio/base_events.py", line 712, in run_until_complete
+    self.run_forever()
+  File "/opt/homebrew/anaconda3/lib/python3.13/asyncio/base_events.py", line 683, in run_forever
+    self._run_once()
+  File "/opt/homebrew/anaconda3/lib/python3.13/asyncio/base_events.py", line 2012, in _run_once
+    event_list = self._selector.select(timeout)
+  File "/opt/homebrew/anaconda3/lib/python3.13/selectors.py", line 548, in select
+    kev_list = self._selector.control(None, max_ev, timeout)
++++++++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++++++

@@ -1,0 +1,1882 @@
+EEE.E.................EEEEEEE...........F.F..E....EE.............EFFE... [ 22%]
+.EEF.................................................................... [ 44%]
+........................................................................ [ 67%]
+........................................................................ [ 89%]
+.................................                                        [100%]
+==================================== ERRORS ====================================
+_____________________ ERROR at setup of test_cors_headers ______________________
+
+self = <Coroutine test_cors_headers>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53036', 53036)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_cors_headers0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+_______________ ERROR at setup of test_rate_limiting_market_data _______________
+
+self = <Coroutine test_rate_limiting_market_data>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53084', 53084)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_rate_limiting_market_data0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+____________ ERROR at setup of test_rate_limiting_simulate_payment _____________
+
+self = <Coroutine test_rate_limiting_simulate_payment>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53106', 53106)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_rate_limiting_simulate_pa0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+________________ ERROR at setup of test_api_server_payment_flow ________________
+
+self = <Coroutine test_api_server_payment_flow>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53133', 53133)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_api_server_payment_flow0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+_____________ ERROR at setup of test_f5_x402_micropayment_402_code _____________
+
+self = <Coroutine test_f5_x402_micropayment_402_code>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53795', 53795)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_micropayment_402_0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+_____________ ERROR at setup of test_f5_x402_verify_valid_payment ______________
+
+self = <Coroutine test_f5_x402_verify_valid_payment>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53819', 53819)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_verify_valid_paym0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+______________ ERROR at setup of test_f5_x402_receipt_lookup_fail ______________
+
+self = <Coroutine test_f5_x402_receipt_lookup_fail>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53843', 53843)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_receipt_lookup_fa0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+________________ ERROR at setup of test_f5_x402_wrong_recipient ________________
+
+self = <Coroutine test_f5_x402_wrong_recipient>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53865', 53865)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_wrong_recipient0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+_____________ ERROR at setup of test_f5_x402_wrong_transfer_amount _____________
+
+self = <Coroutine test_f5_x402_wrong_transfer_amount>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53889', 53889)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_wrong_transfer_am0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+_____________ ERROR at setup of test_f5_x402_wrong_erc20_contract ______________
+
+self = <Coroutine test_f5_x402_wrong_erc20_contract>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53911', 53911)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_wrong_erc20_contr0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+___________ ERROR at setup of test_f5_x402_failed_transaction_status ___________
+
+self = <Coroutine test_f5_x402_failed_transaction_status>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:53935', 53935)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_f5_x402_failed_transactio0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+______________ ERROR at setup of test_t2_malformed_x402_signature ______________
+
+self = <Coroutine test_t2_malformed_x402_signature>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:54445', 54445)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t2_malformed_x402_signatu0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+__________ ERROR at setup of test_t2_usdc_transfer_log_missing_topics __________
+
+self = <Coroutine test_t2_usdc_transfer_log_missing_topics>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:55056', 55056)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t2_usdc_transfer_log_miss0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+__________ ERROR at setup of test_t2_usdc_transfer_log_multi_transfer __________
+
+self = <Coroutine test_t2_usdc_transfer_log_multi_transfer>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:55081', 55081)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t2_usdc_transfer_log_mult0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+___________ ERROR at setup of test_t2_x402_signature_eip712_parsing ____________
+
+self = <Coroutine test_t2_x402_signature_eip712_parsing>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:55672', 55672)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t2_x402_signature_eip712_0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+__________ ERROR at setup of test_t3_payment_gating_plus_fast_blocks ___________
+
+self = <Coroutine test_t3_payment_gating_plus_fast_blocks>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:55803', 55803)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t3_payment_gating_plus_fa0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+__________ ERROR at setup of test_t4_complete_x402_micropayment_flow ___________
+
+self = <Coroutine test_t4_complete_x402_micropayment_flow>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:55952', 55952)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t4_complete_x402_micropay0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+_____ ERROR at setup of test_t4_x402_replay_and_cryptographic_verification _____
+
+self = <Coroutine test_t4_x402_replay_and_cryptographic_verification>
+
+    def setup(self) -> None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+>       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/opt/homebrew/anaconda3/lib/python3.13/site-packages/pytest_asyncio/plugin.py:926: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mock_rpc = ('http://127.0.0.1:55976', 55976)
+tmp_path = PosixPath('/private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-136/test_t4_x402_replay_and_crypto0')
+
+    @pytest.fixture(scope="function")
+    def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None, None]:
+        rpc_url, _ = mock_rpc
+    
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            port = get_free_port()
+    
+            # Isolate the payment DB file for each test function
+            payments_file = tmp_path / f"payments_db_{attempt}.json"
+    
+            # Run API server subprocess overriding BASE_RPC_URL and setting PYTHONPATH
+            env = os.environ.copy()
+            env["BASE_RPC_URL"] = rpc_url
+            env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
+            env["PAYMENTS_FILE"] = str(payments_file)
+    
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "/Users/nazmi/Desktop/Stockodile/.venv/bin/stockodile_runner.py",
+                    str(port),
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+    
+            # Wait for FastAPI to start
+            start_time = time.time()
+            api_url = f"http://127.0.0.1:{port}"
+            success = False
+    
+            while time.time() - start_time < 45.0:
+                if proc.poll() is not None:
+                    # Server crashed (e.g. port collision), break to try next port
+                    break
+                try:
+                    with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                        success = True
+                        break
+                except OSError:
+                    time.sleep(0.1)
+    
+            if success:
+                yield api_url
+                proc.terminate()
+                proc.wait()
+                return
+            else:
+                try:
+                    proc.terminate()
+                    proc.wait()
+                except Exception:
+                    pass
+        else:
+>           raise RuntimeError("API server failed to start on any ports after multiple retries.")
+E           RuntimeError: API server failed to start on any ports after multiple retries.
+
+tests/e2e/conftest.py:95: RuntimeError
+=================================== FAILURES ===================================
+________________________ test_t2_huge_pagination_split _________________________
+
+mock_rpc = ('http://127.0.0.1:54197', 54197)
+
+    @pytest.mark.asyncio
+    async def test_t2_huge_pagination_split(mock_rpc) -> None:
+        rpc_url, _ = mock_rpc
+        pool_data = {
+            "address": "0x0000000000000000000000000000000000000001",
+            "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+            "token0": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+            "token1": "0x833589fCD6eDb6E08f4c7C32D4f71b54bda02913",
+            "fee": 500,
+            "sqrtPriceX96": 2**96,
+            "tick": 0,
+            "liquidity": 1000,
+        }
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"{rpc_url}/control/pool", json=pool_data)
+            # Block difference of 1500 blocks (starts at current_block - 20 by default
+            # unless last_block is set)
+            await session.post(f"{rpc_url}/control/block", json={"block_number": 2500})
+    
+        transport = BaseOnchainTransport(rpc_url, ["cbBTC-USDC"], poll_interval=0.1)
+        transport._last_blocks["cbBTC-USDC"] = 1000
+        await transport.connect()
+        try:
+            for _ in range(100):
+                if transport._last_blocks.get("cbBTC-USDC", 0) >= 2500:
+                    break
+                await asyncio.sleep(0.05)
+        finally:
+            await transport.close()
+    
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{rpc_url}/control/history") as resp:
+                history = (await resp.json())["history"]
+    
+        get_logs_calls = [
+            r
+            for r in history
+            if r["method"] == "eth_getLogs"
+            and "0x0000000000000000000000000000000000000001" in str(r.get("params", []))
+        ]
+>       assert len(get_logs_calls) == 4  # 1500 blocks divided by 500 size (plus 5 overlap) -> 4 calls
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: assert 5 == 4
+E        +  where 5 = len([{'method': 'eth_getLogs', 'params': [{'address': ['0x0000000000000000000000000000000000000001'], 'fromBlock': '0x3e4'...ock': '0x9c0', 'toBlock': '0x9c4', 'topics': ['0xc42079f94a6350d7e6235f29174924f9287a20ac8e91c97b870daEE5297F6e85']}]}])
+
+tests/e2e/test_tier2_boundaries.py:161: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 1/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 1/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 2/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 2/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0002s... (Attempt 3/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0003s... (Attempt 3/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0006s... (Attempt 4/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0006s... (Attempt 4/5)
+ERROR    stockodile.exchanges.base_onchain.connector:connector.py:605 RPC call failed after 5 attempts: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:970 base_onchain: Failed to fetch tickSpacing dynamically: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Deriving from fee tier.
+ERROR    stockodile.exchanges.base_onchain.connector:connector.py:605 RPC call failed after 5 attempts: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:970 base_onchain: Failed to fetch tickSpacing dynamically: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Deriving from fee tier.
+_____________________ test_t2_connection_drop_mid_polling ______________________
+
+mock_rpc = ('http://127.0.0.1:54370', 54370)
+
+    @pytest.mark.asyncio
+    async def test_t2_connection_drop_mid_polling(mock_rpc) -> None:
+        rpc_url, _ = mock_rpc
+        pool_data = {
+            "address": "0x0000000000000000000000000000000000000001",
+            "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+            "token0": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+            "token1": "0x833589fCD6eDb6E08f4c7C32D4f71b54bda02913",
+            "fee": 500,
+            "sqrtPriceX96": 2**96,
+            "tick": 0,
+            "liquidity": 1000,
+        }
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"{rpc_url}/control/pool", json=pool_data)
+    
+        transport = BaseOnchainTransport(rpc_url, ["cbBTC-USDC"], poll_interval=0.1)
+        await transport.connect()
+        try:
+            # Get first update
+            async for _msg_bytes in transport:
+                break
+    
+            # Drop connection for next poll
+            async with aiohttp.ClientSession() as session:
+                await session.post(
+                    f"{rpc_url}/control/behavior", json={"status_code": 500, "error_count": 1}
+                )
+    
+            # Should still recover and fetch later
+            async for msg_bytes in transport:
+                msg = json.loads(msg_bytes.decode())
+>               assert msg["pool"] == "cbBTC-USDC"
+E               AssertionError: assert 'CUSTOM_MCP-USDC' == 'cbBTC-USDC'
+E                 
+E                 - cbBTC-USDC
+E                 + CUSTOM_MCP-USDC
+
+tests/e2e/test_tier2_boundaries.py:229: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 1/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 1/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0001s... (Attempt 2/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0002s... (Attempt 2/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0004s... (Attempt 3/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0003s... (Attempt 3/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0006s... (Attempt 4/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Retrying in 0.0008s... (Attempt 4/5)
+ERROR    stockodile.exchanges.base_onchain.connector:connector.py:605 RPC call failed after 5 attempts: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:970 base_onchain: Failed to fetch tickSpacing dynamically: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Deriving from fee tier.
+ERROR    stockodile.exchanges.base_onchain.connector:connector.py:605 RPC call failed after 5 attempts: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:970 base_onchain: Failed to fetch tickSpacing dynamically: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000001'}. Deriving from fee tier.
+____________________ test_t3_pagination_plus_rate_limiting _____________________
+
+mock_rpc = ('http://127.0.0.1:55694', 55694)
+
+    @pytest.mark.asyncio
+    async def test_t3_pagination_plus_rate_limiting(mock_rpc) -> None:
+        rpc_url, _ = mock_rpc
+        pool_data = {
+            "address": "0x0000000000000000000000000000000000000001",
+            "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+            "token0": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+            "token1": "0x833589fCD6eDb6E08f4c7C32D4f71b54bda02913",
+            "fee": 500,
+            "sqrtPriceX96": 2**96,
+            "tick": 0,
+            "liquidity": 1000,
+        }
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"{rpc_url}/control/pool", json=pool_data)
+            # Block difference of 1001 blocks (requires 3 slices)
+            await session.post(f"{rpc_url}/control/block", json={"block_number": 2001})
+            # Mock intermittent rate limit (HTTP 429 once)
+            await session.post(
+                f"{rpc_url}/control/behavior", json={"status_code": 429, "error_count": 1}
+            )
+    
+        transport = BaseOnchainTransport(rpc_url, ["cbBTC-USDC"], poll_interval=0.1)
+        transport._last_blocks["cbBTC-USDC"] = 1000
+        await transport.connect()
+        try:
+            await asyncio.sleep(0.5)
+        finally:
+            await transport.close()
+    
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{rpc_url}/control/history") as resp:
+                history = (await resp.json())["history"]
+    
+        get_logs_calls = [r for r in history if r["method"] == "eth_getLogs"]
+>       assert len(get_logs_calls) >= 3
+E       assert 0 >= 3
+E        +  where 0 = len([])
+
+tests/e2e/test_tier3_combinations.py:53: AssertionError
+______________________ test_t3_custom_symbol_plus_retries ______________________
+
+mock_rpc = ('http://127.0.0.1:55730', 55730)
+
+    @pytest.mark.asyncio
+    async def test_t3_custom_symbol_plus_retries(mock_rpc) -> None:
+        rpc_url, _ = mock_rpc
+        from stockodile.exchanges.base_onchain import connector
+    
+        connector.POOL_SPECS["CUSTOM_RETRY-USDC"] = {
+            "type": "uniswap_v3",
+            "token0": "cbBTC",
+            "token1": "USDC",
+            "fee": 500,
+            "decimals0": 8,
+            "decimals1": 6,
+        }
+        pool_data = {
+            "address": "0x0000000000000000000000000000000000000010",
+            "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+            "token0": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+            "token1": "0x833589fCD6eDb6E08f4c7C32D4f71b54bda02913",
+            "fee": 500,
+            "sqrtPriceX96": 2**96,
+            "tick": 0,
+            "liquidity": 1000,
+        }
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"{rpc_url}/control/pool", json=pool_data)
+            # Timeout error count = 1
+            await session.post(
+                f"{rpc_url}/control/behavior", json={"status_code": 500, "error_count": 1}
+            )
+    
+        transport = BaseOnchainTransport(rpc_url, ["CUSTOM_RETRY-USDC"], poll_interval=0.1)
+        await transport.connect()
+        try:
+            async for msg_bytes in transport:
+                msg = json.loads(msg_bytes.decode())
+>               assert msg["pool"] == "CUSTOM_RETRY-USDC"
+E               AssertionError: assert 'CUSTOM_MCP-USDC' == 'CUSTOM_RETRY-USDC'
+E                 
+E                 - CUSTOM_RETRY-USDC
+E                 ?        ^^^^^
+E                 + CUSTOM_MCP-USDC
+E                 ?        ^^^
+
+tests/e2e/test_tier3_combinations.py:92: AssertionError
+------------------------------ Captured log call -------------------------------
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0001s... (Attempt 1/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0001s... (Attempt 1/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0001s... (Attempt 2/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0001s... (Attempt 2/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0003s... (Attempt 3/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0003s... (Attempt 3/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0008s... (Attempt 4/5)
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:609 RPC call failed: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Retrying in 0.0007s... (Attempt 4/5)
+ERROR    stockodile.exchanges.base_onchain.connector:connector.py:605 RPC call failed after 5 attempts: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:970 base_onchain: Failed to fetch tickSpacing dynamically: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Deriving from fee tier.
+ERROR    stockodile.exchanges.base_onchain.connector:connector.py:605 RPC call failed after 5 attempts: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}
+WARNING  stockodile.exchanges.base_onchain.connector:connector.py:970 base_onchain: Failed to fetch tickSpacing dynamically: {'code': -32603, 'message': 'Execution error: Unknown selector 0xd0c93a7c on contract 0x0000000000000000000000000000000000000010'}. Deriving from fee tier.
+___________________ test_t4_showcase_script_offline_dry_run ____________________
+
+mock_rpc = ('http://127.0.0.1:55998', 55998)
+
+    @pytest.mark.asyncio
+    async def test_t4_showcase_script_offline_dry_run(mock_rpc) -> None:
+        rpc_url, _ = mock_rpc
+    
+        pool_data = {
+            "address": "0x0000000000000000000000000000000000000001",
+            "factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+            "token0": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
+            "token1": "0x833589fCD6eDb6E08f4c7C32D4f71b54bda02913",
+            "fee": 500,
+            "sqrtPriceX96": 2**96,
+            "tick": 0,
+            "liquidity": 1000,
+        }
+    
+        async with aiohttp.ClientSession() as session:
+            await session.post(f"{rpc_url}/control/pool", json=pool_data)
+    
+        env = os.environ.copy()
+        env["BASE_RPC_URL"] = rpc_url
+        env["PYTHONPATH"] = os.path.abspath("src")  # noqa: ASYNC240
+    
+        import sys
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "examples/collect_base_onchain.py",
+            "--dry-run",
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0 or not (b"cbBTC-USDC" in stdout or b"AERO-USDC" in stdout):
+            print("SHOWCASE STDOUT:", stdout.decode())
+            print("SHOWCASE STDERR:", stderr.decode())
+>       assert proc.returncode == 0
+E       assert 2 == 0
+E        +  where 2 = <Process 44657>.returncode
+
+tests/e2e/test_tier4_real_world.py:377: AssertionError
+----------------------------- Captured stdout call -----------------------------
+SHOWCASE STDOUT: 
+SHOWCASE STDERR: /opt/homebrew/anaconda3/bin/python3: can't open file '/Users/nazmi/Desktop/Stockodile/examples/collect_base_onchain.py': [Errno 2] No such file or directory
+
+=============================== warnings summary ===============================
+../../../../opt/homebrew/anaconda3/lib/python3.13/site-packages/websockets/legacy/__init__.py:6
+  /opt/homebrew/anaconda3/lib/python3.13/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+tests/e2e/test_tier1_features.py: 18 warnings
+tests/e2e/test_tier2_boundaries.py: 11 warnings
+tests/e2e/test_tier3_combinations.py: 2 warnings
+  /opt/homebrew/anaconda3/lib/python3.13/site-packages/aiohttp/connector.py:963: DeprecationWarning: enable_cleanup_closed ignored because https://github.com/python/cpython/pull/118960 is fixed in Python version sys.version_info(major=3, minor=13, micro=9, releaselevel='final', serial=0)
+    super().__init__(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/e2e/test_tier2_boundaries.py::test_t2_huge_pagination_split - As...
+FAILED tests/e2e/test_tier2_boundaries.py::test_t2_connection_drop_mid_polling
+FAILED tests/e2e/test_tier3_combinations.py::test_t3_pagination_plus_rate_limiting
+FAILED tests/e2e/test_tier3_combinations.py::test_t3_custom_symbol_plus_retries
+FAILED tests/e2e/test_tier4_real_world.py::test_t4_showcase_script_offline_dry_run
+ERROR tests/e2e/test_rate_limiting_and_cors.py::test_cors_headers - RuntimeEr...
+ERROR tests/e2e/test_rate_limiting_and_cors.py::test_rate_limiting_market_data
+ERROR tests/e2e/test_rate_limiting_and_cors.py::test_rate_limiting_simulate_payment
+ERROR tests/e2e/test_smoke_e2e.py::test_api_server_payment_flow - RuntimeErro...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_micropayment_402_code - ...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_verify_valid_payment - R...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_receipt_lookup_fail - Ru...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_wrong_recipient - Runtim...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_wrong_transfer_amount - ...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_wrong_erc20_contract - R...
+ERROR tests/e2e/test_tier1_features.py::test_f5_x402_failed_transaction_status
+ERROR tests/e2e/test_tier2_boundaries.py::test_t2_malformed_x402_signature - ...
+ERROR tests/e2e/test_tier2_boundaries.py::test_t2_usdc_transfer_log_missing_topics
+ERROR tests/e2e/test_tier2_boundaries.py::test_t2_usdc_transfer_log_multi_transfer
+ERROR tests/e2e/test_tier2_boundaries.py::test_t2_x402_signature_eip712_parsing
+ERROR tests/e2e/test_tier3_combinations.py::test_t3_payment_gating_plus_fast_blocks
+ERROR tests/e2e/test_tier4_real_world.py::test_t4_complete_x402_micropayment_flow
+ERROR tests/e2e/test_tier4_real_world.py::test_t4_x402_replay_and_cryptographic_verification

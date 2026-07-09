@@ -1,0 +1,7 @@
+{
+  "iteration": 1,
+  "decision": "REVERT",
+  "cause": "regression_verify_fail",
+  "head": "1362e9455107e84fa0877450700a173cf65d6ed1",
+  "ts": "2026-07-09T01:43:57Z"
+}
