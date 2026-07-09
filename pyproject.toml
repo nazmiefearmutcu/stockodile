@@ -1,6 +1,6 @@
 [project]
 name = "stockodile"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open-source US-equity market-data engine: ingest, normalize, store, retrieve anywhere."
 readme = "README.md"
 requires-python = ">=3.12"
