@@ -14,15 +14,18 @@ shell     -- Start an interactive Stockodile shell.
 from __future__ import annotations
 
 import os
+
 os.environ["TYPER_USE_RICH"] = "0"
 
 import asyncio
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Annotated
+from typing import Annotated, Any, cast
 
 import typer
+
+from stockodile.sink.base import Sink
 
 
 def is_interactive_stdin() -> bool:
@@ -69,14 +72,16 @@ def prompt_with_autocomplete(
     meta_dict: dict[str, str] | None = None
 ) -> str:
     """Prompt the user for input, with autocomplete popup, history, and shadow suggestions."""
-    from prompt_toolkit import prompt
-    from prompt_toolkit.completion import WordCompleter
-    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.filters import has_completions
     import sys
 
-    # If stdin is not interactive (e.g., tests/pipes) or running in pytest, use fallback _prompt_with_esc
+    from prompt_toolkit import prompt
+    from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+    from prompt_toolkit.completion import WordCompleter
+    from prompt_toolkit.filters import has_completions
+    from prompt_toolkit.key_binding import KeyBindings
+
+    # If stdin is not interactive (e.g., tests/pipes) or running in pytest,
+    # use fallback _prompt_with_esc
     if not is_interactive_stdin() or "pytest" in sys.modules:
         return typer.prompt(text, default=default)
 
@@ -107,7 +112,7 @@ def prompt_with_autocomplete(
     except (KeyboardInterrupt, EOFError):
         sys.stderr.write("\nCancelled.\n")
         sys.stderr.flush()
-        raise typer.Exit(code=0)
+        raise typer.Exit(code=0) from None
 
 
 def prompt_symbol(text: str, data_dir: Path, channel: str | None = None, default: str = "") -> str:
@@ -139,15 +144,21 @@ def prompt_symbol(text: str, data_dir: Path, channel: str | None = None, default
 # ---------------------------------------------------------------------------
 # Override typer.prompt to support cancellation with the ESC key
 # ---------------------------------------------------------------------------
-def _prompt_with_esc(text: str, default: Any = None, type: Any = None, *args: Any, **kwargs: Any) -> Any:
+def _prompt_with_esc(
+    text: str,
+    default: Any = None,
+    type: Any = None,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
     """Prompt the user for input, allowing cancellation via ESC or Ctrl+C."""
     import sys
 
     # Try imports for Unix TTY
     try:
-        import tty
-        import termios
         import select
+        import termios
+        import tty
         has_unix_tty = sys.stdin.isatty()
     except ImportError:
         has_unix_tty = False
@@ -276,7 +287,7 @@ def _prompt_with_esc(text: str, default: Any = None, type: Any = None, *args: An
             # Print newline and Cancelled, then exit cleanly
             sys.stderr.write("\nCancelled.\n")
             sys.stderr.flush()
-            raise typer.Exit(code=0)
+            raise typer.Exit(code=0) from None
 
         if not val_str and default is None:
             # Re-prompt if value is required and no default is provided
@@ -292,8 +303,7 @@ def _prompt_with_esc(text: str, default: Any = None, type: Any = None, *args: An
         return val_str
 
 
-import typing
-typing.cast(Any, typer).prompt = _prompt_with_esc
+cast(Any, typer).prompt = _prompt_with_esc
 
 
 def prompt_time_range_helper(
@@ -305,6 +315,7 @@ def prompt_time_range_helper(
 ) -> tuple[int, int]:
     """Helper to show available time range from the database and prompt for Start/End times."""
     import datetime
+
     from stockodile.store.catalog import Catalog
     
     min_ts, max_ts = None, None
@@ -318,7 +329,10 @@ def prompt_time_range_helper(
                     if clean_syms:
                         sym_list = ", ".join(f"'{s}'" for s in clean_syms)
                         where_clause = f" WHERE symbol IN ({sym_list})"
-                df = cat.query(f'SELECT min(local_ts) as min_t, max(local_ts) as max_t FROM "{channel}"{where_clause}')
+                df = cat.query(
+                    f'SELECT min(local_ts) as min_t, max(local_ts) as max_t '
+                    f'FROM "{channel}"{where_clause}'
+                )
                 if len(df) > 0:
                     row = df.to_dicts()[0]
                     if row.get("min_t") is not None:
@@ -330,12 +344,18 @@ def prompt_time_range_helper(
 
     if min_ts is not None and max_ts is not None:
         try:
-            min_dt_str = datetime.datetime.fromtimestamp(min_ts // 1_000_000_000, tz=datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            min_dt = datetime.datetime.fromtimestamp(
+                min_ts // 1_000_000_000, tz=datetime.UTC
+            )
+            min_dt_str = min_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
         except (ValueError, OSError, OverflowError):
             min_dt_str = str(min_ts) if min_ts is not None else "unknown"
-
+            
         try:
-            max_dt_str = datetime.datetime.fromtimestamp(max_ts // 1_000_000_000, tz=datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            max_dt = datetime.datetime.fromtimestamp(
+                max_ts // 1_000_000_000, tz=datetime.UTC
+            )
+            max_dt_str = max_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
         except (ValueError, OSError, OverflowError):
             max_dt_str = str(max_ts) if max_ts is not None else "unknown"
 
@@ -349,7 +369,8 @@ def prompt_time_range_helper(
 
     instructions = (
         "\n--- Time Range Filter Instruction ---\n"
-        "Start and End times filter the historical market data records retrieved from the database.\n"
+        "Start and End times filter the historical market data "
+        "records retrieved from the database.\n"
         "Accepted input formats:\n"
         "  - UTC date-time string: 'YYYY-MM-DD HH:MM:SS', 'YYYY-MM-DD HH:MM', or 'YYYY-MM-DD'\n"
         "  - Raw 19-digit UTC nanosecond timestamp (e.g., 1718540000000000000)\n"
@@ -381,7 +402,10 @@ def prompt_time_range_helper(
         fallback_str = str(fallback)
         if 0 < fallback < 9999999999999999999:
             try:
-                fallback_str = datetime.datetime.fromtimestamp(fallback // 1_000_000_000, tz=datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+                dt = datetime.datetime.fromtimestamp(
+                    fallback // 1_000_000_000, tz=datetime.UTC
+                )
+                fallback_str = dt.strftime("%Y-%m-%d %H:%M:%S UTC")
             except Exception:
                 pass
         elif fallback == 0:
@@ -423,6 +447,7 @@ def resolve_data_dir(data_dir: Path) -> Path:
     """Resolve the data directory, falling back to test_data or prompting the user if empty."""
     import sys
     from pathlib import Path
+
     from stockodile.store.catalog import Catalog
 
     cwd_test_data = Path("test_data")
@@ -458,13 +483,18 @@ def resolve_data_dir(data_dir: Path) -> Path:
 
     if not is_interactive_stdin():
         if fallback_candidate and (data_dir == Path("data") or not data_dir.exists()):
-            typer.echo(f"Warning: No data found in '{data_dir}', falling back to '{fallback_candidate}'.", err=True)
+            typer.echo(
+                f"Warning: No data found in '{data_dir}', "
+                f"falling back to '{fallback_candidate}'.",
+                err=True,
+            )
             return fallback_candidate
         return data_dir
 
     if fallback_candidate and (data_dir == Path("data") or not data_dir.exists()):
         use_fallback = typer.confirm(
-            f"No data found in '{data_dir}', but test data was found at '{fallback_candidate}'. Use it?",
+            f"No data found in '{data_dir}', but test data was "
+            f"found at '{fallback_candidate}'. Use it?",
             default=True
         )
         if use_fallback:
@@ -498,7 +528,11 @@ def normalize_user_symbol(provider: str, symbol: str) -> str:
     return s.upper()
 
 
-def resolve_input_symbols(data_dir: Path, symbols_input: list[str], channels: list[str] | str | None = None) -> list[str]:
+def resolve_input_symbols(
+    data_dir: Path,
+    symbols_input: list[str],
+    channels: list[str] | str | None = None,
+) -> list[str]:
     """Resolve user entered symbols to matching catalog symbols if possible."""
     from stockodile.store.catalog import Catalog
     
@@ -588,9 +622,10 @@ def resolve_input_symbols(data_dir: Path, symbols_input: list[str], channels: li
     return resolved
 
 
-def select_symbols_interactively(data_dir: Path, channel: str | None = None) -> tuple[str, list[str]]:
+def select_symbols_interactively(
+    data_dir: Path, channel: str | None = None
+) -> tuple[str, list[str]]:
     """Select channel and symbol(s) interactively using a search/selection wizard."""
-    import sys
     from stockodile.store.catalog import Catalog
 
     cat = Catalog(data_dir)
@@ -849,10 +884,6 @@ def make_sparkline(prices: list[float]) -> str:
         res.append(ticks[idx])
     return "".join(res)
 
-
-from collections import deque
-from stockodile.sink.base import Sink
-
 class MonitoringSink(Sink):
     def __init__(self, target: Sink):
         self.target = target
@@ -880,7 +911,9 @@ class MonitoringSink(Sink):
             self.last_rate_calc_time = now
 
         struct_config = getattr(type(record), "__struct_config__", None)
-        channel = (getattr(struct_config, "tag", None) if struct_config else None) or getattr(record, "channel", "unknown")
+        channel = (
+            getattr(struct_config, "tag", None) if struct_config else None
+        ) or getattr(record, "channel", "unknown")
         key = (record.symbol, channel)
         self.records_by_key[key] = self.records_by_key.get(key, 0) + 1
         self.last_ts_by_key[key] = now
@@ -901,14 +934,20 @@ class MonitoringSink(Sink):
         await self.target.close()
 
 
-async def run_dashboard(monitoring_sink: MonitoringSink, provider: str, symbols: list[str], channels: list[str], data_dir: Path):
+async def run_dashboard(
+    monitoring_sink: MonitoringSink,
+    provider: str,
+    symbols: list[str],
+    channels: list[str],
+    data_dir: Path,
+):
+    from rich.align import Align
+    from rich.columns import Columns
     from rich.console import Console, Group
     from rich.live import Live
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-    from rich.align import Align
-    from rich.columns import Columns
     
     console = Console()
     
@@ -927,7 +966,10 @@ async def run_dashboard(monitoring_sink: MonitoringSink, provider: str, symbols:
         # Title & Subtitle
         title_text = Text()
         title_text.append("STOCKODILE LIVE DATA INGESTION PIPELINE\n", style="bold cyan")
-        title_text.append("Real-time streaming US-equity market data to local Parquet storage\n", style="dim white")
+        title_text.append(
+            "Real-time streaming US-equity market data to local Parquet storage\n",
+            style="dim white",
+        )
         
         # Pipeline Configuration Panel
         config_table = Table.grid(padding=(0, 2))
@@ -966,18 +1008,30 @@ async def run_dashboard(monitoring_sink: MonitoringSink, provider: str, symbols:
         perf_table.add_column("Metric", style="bold cyan")
         perf_table.add_column("Value", style="white")
         perf_table.add_row("Pipeline status", status_text)
-        perf_table.add_row("Total records saved", f"[bold green]{monitoring_sink.total_records:,}[/]")
+        perf_table.add_row(
+            "Total records saved", f"[bold green]{monitoring_sink.total_records:,}[/]"
+        )
         perf_table.add_row("Ingestion speed", f"[bold green]{rate:.1f} records/sec[/]")
         perf_table.add_row("Write-buffer queue", f"[bold red]{buffered_count:,} rows[/]")
         
         # Arrange panels side-by-side
-        left_panel = Panel(config_table, title="[bold white]Pipeline Config[/]", border_style="cyan")
-        right_panel = Panel(perf_table, title="[bold white]System Performance[/]", border_style=status_border)
+        left_panel = Panel(
+            config_table, title="[bold white]Pipeline Config[/]", border_style="cyan"
+        )
+        right_panel = Panel(
+            perf_table,
+            title="[bold white]System Performance[/]",
+            border_style=status_border,
+        )
         
         header_columns = Columns([left_panel, right_panel], expand=True)
         
         # Active Data Streams Table
-        stats_table = Table(title="[bold white]Active Market Data Streams[/]", border_style="cyan", expand=True)
+        stats_table = Table(
+            title="[bold white]Active Market Data Streams[/]",
+            border_style="cyan",
+            expand=True,
+        )
         stats_table.add_column("Asset/Symbol", style="bold cyan", ratio=2)
         stats_table.add_column("Data Type (Channel)", style="bold yellow", ratio=2)
         stats_table.add_column("Messages Ingested", justify="right", style="green", ratio=2)
@@ -997,7 +1051,7 @@ async def run_dashboard(monitoring_sink: MonitoringSink, provider: str, symbols:
                 last_val_str = format_record_value(ch, last_val)
                 
                 if len(values_deque) >= 2:
-                    prev_val = values_deque[-2]
+                    values_deque[-2]
                     first_val = values_deque[0]
                     pct_change = ((last_val - first_val) / first_val) * 100.0 if first_val else 0.0
                     
@@ -1014,11 +1068,18 @@ async def run_dashboard(monitoring_sink: MonitoringSink, provider: str, symbols:
                 
             stats_table.add_row(sym, ch, f"{count:,}", last_val_str, trend_str, sparkline)
             
-        footer_text = Text("\nTo view and query your historical local data, open a new terminal window and run: ", style="dim")
-        footer_text.append(f"stockodile query \"SELECT * FROM {channels[0] if channels else 'trade'}\"", style="bold yellow")
+        footer_text = Text(
+            "\nTo view and query your historical local data, "
+            "open a new terminal window and run: ",
+            style="dim",
+        )
+        query_sql = f"SELECT * FROM {channels[0] if channels else 'trade'}"
+        footer_text.append(f'stockodile query "{query_sql}"', style="bold yellow")
         footer_text.append("\nPress ")
         footer_text.append("Ctrl-C", style="bold red")
-        footer_text.append(" at any time to safely stop the ingestion pipeline.", style="dim")
+        footer_text.append(
+            " at any time to safely stop the ingestion pipeline.", style="dim"
+        )
         
         group = Group(
             Align.center(title_text),
@@ -1071,7 +1132,7 @@ def query(
         df = client.query(sql)
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     typer.echo(df)
 
 
@@ -1110,7 +1171,10 @@ def catalog(
 # ---------------------------------------------------------------------------
 @app.command()
 def export(
-    channel: Annotated[str | None, typer.Option("--channel", help="Channel name, e.g. trade.")] = None,
+    channel: Annotated[
+        str | None,
+        typer.Option("--channel", help="Channel name, e.g. trade."),
+    ] = None,
     symbols: Annotated[
         list[str] | None,
         typer.Option("--symbols", help="Canonical symbol(s). Repeat for multiple."),
@@ -1165,7 +1229,13 @@ def export(
             sym_input = prompt_symbol("Symbol (e.g. AAPL)", data_dir, channel=channel)
             symbols = [s.strip() for s in sym_input.split(",") if s.strip()]
         if frm is None or to is None:
-            resolved_start, resolved_end = prompt_time_range_helper(data_dir, channel, symbols, default_start=0, default_end=9999999999999999999)
+            resolved_start, resolved_end = prompt_time_range_helper(
+                data_dir,
+                channel,
+                symbols,
+                default_start=0,
+                default_end=9999999999999999999,
+            )
             if frm is None:
                 frm = resolved_start
             if to is None:
@@ -1183,7 +1253,7 @@ def export(
         client.export(channel, symbols, frm, to, fmt=fmt, dest=dest)  # type: ignore[arg-type]
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     typer.echo(f"Exported to: {dest}")
 
 
@@ -1221,7 +1291,10 @@ def replay(
 
     if not is_interactive_stdin():
         if not channels or not symbols:
-            typer.echo("Error: channels and symbols are required in non-interactive mode.", err=True)
+            typer.echo(
+                "Error: channels and symbols are required in non-interactive mode.",
+                err=True,
+            )
             raise typer.Exit(code=1)
         if frm is None:
             frm = 0
@@ -1230,7 +1303,10 @@ def replay(
     else:
         # Interactive
         if not channels or not symbols:
-            ch, selected_symbols = select_symbols_interactively(data_dir, channels[0] if channels else None)
+            ch, selected_symbols = select_symbols_interactively(
+                data_dir,
+                channels[0] if channels else None,
+            )
             if ch:
                 channels = [ch]
             if selected_symbols:
@@ -1239,10 +1315,20 @@ def replay(
             ch_input = typer.prompt("Channel(s) (e.g. trade)")
             channels = [c.strip() for c in ch_input.split(",") if c.strip()]
         if not symbols:
-            sym_input = prompt_symbol("Symbol (e.g. AAPL)", data_dir, channel=channels[0] if channels else None)
+            sym_input = prompt_symbol(
+                "Symbol (e.g. AAPL)",
+                data_dir,
+                channel=channels[0] if channels else None,
+            )
             symbols = [s.strip() for s in sym_input.split(",") if s.strip()]
         if frm is None or to is None:
-            resolved_start, resolved_end = prompt_time_range_helper(data_dir, channels[0] if channels else None, symbols, default_start=0, default_end=9999999999999999999)
+            resolved_start, resolved_end = prompt_time_range_helper(
+                data_dir,
+                channels[0] if channels else None,
+                symbols,
+                default_start=0,
+                default_end=9999999999999999999,
+            )
             if frm is None:
                 frm = resolved_start
             if to is None:
@@ -1261,7 +1347,7 @@ def replay(
                 break
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     
     get_console().print(f"[bold cyan]-- {count} record(s) replayed.[/bold cyan]")
 
@@ -1271,7 +1357,10 @@ def replay(
 # ---------------------------------------------------------------------------
 @app.command()
 def collect(
-    provider: Annotated[str | None, typer.Option("--provider", help="Provider name, e.g. alpaca.")] = None,
+    provider: Annotated[
+        str | None,
+        typer.Option("--provider", help="Provider name, e.g. alpaca."),
+    ] = None,
     symbols: Annotated[
         list[str] | None,
         typer.Option("--symbols", help="Symbol(s) to collect. Repeat for multiple."),
@@ -1291,12 +1380,19 @@ def collect(
 
     if not is_interactive_stdin():
         if not provider or not symbols or not channels:
-            typer.echo("Error: provider, symbols, and channels are required in non-interactive mode.", err=True)
+            typer.echo(
+                "Error: provider, symbols, and channels are required in non-interactive mode.",
+                err=True,
+            )
             raise typer.Exit(code=1)
     else:
         # Interactive
         if not provider or not symbols or not channels:
-            provider, symbols, channels = select_collect_params_interactively(provider, symbols, channels)
+            provider, symbols, channels = select_collect_params_interactively(
+                provider,
+                symbols,
+                channels,
+            )
 
         if not provider:
             provider = typer.prompt("Provider (e.g. alpaca)")
@@ -1418,7 +1514,13 @@ def resample(
         if not interval:
             interval = typer.prompt("Interval (e.g. 1m, 1h, 1d)", default="1m")
         if frm is None or to is None:
-            resolved_start, resolved_end = prompt_time_range_helper(data_dir, "trade", [symbol], default_start=0, default_end=9999999999999999999)
+            resolved_start, resolved_end = prompt_time_range_helper(
+                data_dir,
+                "trade",
+                [symbol],
+                default_start=0,
+                default_end=9999999999999999999,
+            )
             if frm is None:
                 frm = resolved_start
             if to is None:
@@ -1430,7 +1532,7 @@ def resample(
         typer.echo(df)
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 # ---------------------------------------------------------------------------
@@ -1449,11 +1551,12 @@ def shell() -> None:
         sys.stderr.flush()
 
     import shlex
+
     import click
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory, Suggestion
     from prompt_toolkit.completion import WordCompleter
+    from prompt_toolkit.history import InMemoryHistory
     
     class CommandAndHistoryAutoSuggest(AutoSuggestFromHistory):
         def __init__(self, commands):
@@ -1488,11 +1591,18 @@ def shell() -> None:
     if is_interactive and not is_pytest:
         session = PromptSession(
             history=InMemoryHistory(),
-            auto_suggest=CommandAndHistoryAutoSuggest(list(commands.keys()) + ["exit", "quit", "help"]),
+            auto_suggest=CommandAndHistoryAutoSuggest(
+                [*list(commands.keys()), "exit", "quit", "help"]
+            ),
             completer=WordCompleter(
-                words=list(commands.keys()) + ["exit", "quit", "help"],
-                meta_dict={**commands, "exit": "Exit the shell", "quit": "Exit the shell", "help": "Show help"},
-                ignore_case=True
+                words=[*list(commands.keys()), "exit", "quit", "help"],
+                meta_dict={
+                    **commands,
+                    "exit": "Exit the shell",
+                    "quit": "Exit the shell",
+                    "help": "Show help",
+                },
+                ignore_case=True,
             ),
             complete_while_typing=True
         )
@@ -1580,6 +1690,7 @@ LOGO = f"\033[36m{LOGO_ART}\033[0m"
 def main() -> None:
     """Entry-point called by the ``stockodile`` script."""
     import sys
+
     from stockodile import __version__
 
     # Defer loading of rich styling unless help is requested

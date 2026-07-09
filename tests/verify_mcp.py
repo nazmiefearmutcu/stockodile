@@ -13,8 +13,8 @@ mock_ticker.history.return_value = mock_history
 mock_yf.Ticker.return_value = mock_ticker
 sys.modules["yfinance"] = mock_yf
 
-import asyncio
-from stockodile.mcp_server import AsyncWeb3, get_onchain_price
+import asyncio  # noqa: E402, I001
+from stockodile.mcp_server import AsyncWeb3, get_onchain_price  # noqa: E402
 
 
 async def main() -> None:

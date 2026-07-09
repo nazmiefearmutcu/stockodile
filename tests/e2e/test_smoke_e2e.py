@@ -1,9 +1,9 @@
 import asyncio
 import json
+import subprocess
 
 import aiohttp
 import pytest
-import subprocess
 
 
 @pytest.mark.asyncio
