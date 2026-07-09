@@ -1,11 +1,11 @@
 STOCKODILE E2E PROOF OF INTEGRATION LOG
 ======================================
-Execution Timestamp: 2026-07-04 09:37:48 UTC
+Execution Timestamp: 2026-07-09 02:07:28 UTC
 Target Stock Symbol: AAPL
 Dates Scraped: 2026-06-01 to 2026-06-05
 Total Mapped Records: 4
 Bar OHLCV Count: 4
-Database Write Path: /private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-15/test_live_end_to_end_proof0
+Database Write Path: /private/var/folders/j8/0nz924qj25zcqccfmgnckrrw0000gn/T/pytest-of-nazmi/pytest-135/test_live_end_to_end_proof0
 Catalog Query Result: 4 rows found in DuckDB view.
 DataFrame Output Schema & Samples:
 shape: (4, 17)

@@ -3,11 +3,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 # Mock yfinance to prevent importing pandas which is extremely slow in the test environment
 mock_yf = MagicMock()
+orig_yf = sys.modules.get("yfinance")
 sys.modules["yfinance"] = mock_yf
 
-import pytest
-from stockodile.mcp_server import AsyncWeb3, get_base_market_data, get_onchain_price
-from typing import Any, Generator
+from collections.abc import Generator  # noqa: E402
+from typing import Any  # noqa: E402
+
+import pytest  # noqa: E402
+
+from stockodile.mcp_server import AsyncWeb3, get_base_market_data, get_onchain_price  # noqa: E402
+
+if orig_yf is not None:
+    sys.modules["yfinance"] = orig_yf
+else:
+    sys.modules.pop("yfinance", None)
+
+
 
 class AwaitableValue:
     def __init__(self, val: Any) -> None:
@@ -72,7 +83,9 @@ async def test_get_base_market_data_stock_fallback() -> None:
     mock_vol = MagicMock()
     mock_vol.iloc = [7000000.0]
 
-    mock_history.__getitem__.side_effect = lambda key: mock_close if key == "Close" else (mock_vol if key == "Volume" else MagicMock())
+    mock_history.__getitem__.side_effect = lambda key: (
+        mock_close if key == "Close" else (mock_vol if key == "Volume" else MagicMock())
+    )
 
     mock_ticker.history.return_value = mock_history
     with patch("yfinance.Ticker") as mock_ticker_class:
