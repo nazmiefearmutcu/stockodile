@@ -44,3 +44,7 @@ data/
 # Node modules
 node_modules/
 
+
+# AI agent workspace files
+docs/superpowers/
+.ralph/

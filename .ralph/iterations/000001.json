@@ -1,9 +1,0 @@
-{
-  "iteration": 1,
-  "ts": "2026-07-09T01:43:57Z",
-  "decision": "REVERT",
-  "cause": "regression_verify_fail",
-  "tier": "",
-  "last_class": "success",
-  "metrics": null
-}
