@@ -1,4 +1,9 @@
 {
+  "verify": {
+    "cmd": "pytest",
+    "timeout_s": 900,
+    "required": true
+  },
   "baseline": {
     "commit": "1362e94",
     "tree_clean": true,
