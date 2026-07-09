@@ -34,7 +34,7 @@ class TraceAnalyzer:
         if "structLogs" in trace_result:
             struct_logs = trace_result["structLogs"]
             depth_map = {}
-            active_calls = {} # address -> list of depths
+            active_calls: dict[str, list[int]] = {} # address -> list of depths
             
             for log_item in struct_logs:
                 depth = log_item.get("depth", 1)

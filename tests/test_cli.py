@@ -144,3 +144,32 @@ async def test_cli_resample_exits_zero(tmp_path: pathlib.Path) -> None:
     )
     assert result.exit_code == 0, f"stdout:\n{result.output}"
     assert "open" in result.output or "high" in result.output
+
+
+async def test_cli_indicators_exits_zero(tmp_path: pathlib.Path) -> None:
+    """``indicators`` calculates technical analysis indicators, exit code 0."""
+    await _write_fixtures(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "indicators",
+            "--symbol",
+            "alpaca:AAPL",
+            "--indicator",
+            "sma",
+            "--period",
+            "2",
+            "--interval",
+            "1s",
+            "--from",
+            str(_BASE_TS - 1),
+            "--to",
+            str(_BASE_TS + 1_000_000_000),
+            "--data-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, f"stdout:\n{result.output}"
+    assert "sma" in result.output
+

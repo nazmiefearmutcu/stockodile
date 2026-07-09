@@ -1,5 +1,6 @@
 import logging
 
+from typing import Any
 from web3 import AsyncWeb3
 
 from stockodile.schema.records import BalanceCorrection
@@ -7,11 +8,11 @@ from stockodile.schema.records import BalanceCorrection
 log = logging.getLogger(__name__)
 
 class RebaseValidator:
-    def __init__(self, w3: AsyncWeb3, token_address: str, holders: list[str]) -> None:
+    def __init__(self, w3: AsyncWeb3[Any], token_address: str, holders: list[str]) -> None:
         self.w3 = w3
         self.token_address = AsyncWeb3.to_checksum_address(token_address)
         self.holders = [AsyncWeb3.to_checksum_address(h) for h in holders]
-        self._decimals = None
+        self._decimals: int | None = None
         self._abi = [
             {
                 "inputs": [{"name": "account", "type": "address"}],
@@ -34,7 +35,8 @@ class RebaseValidator:
         if self._decimals is not None:
             return self._decimals
         try:
-            self._decimals = await self.contract.functions.decimals().call()
+            decimals = await self.contract.functions.decimals().call()
+            self._decimals = int(decimals)
         except Exception:
             self._decimals = 18
         return self._decimals
@@ -44,7 +46,7 @@ class RebaseValidator:
         local_balances: dict[str, float],
         block_number: int,
         local_ts: int,
-        exchange: str = "base_onchain"
+        provider: str = "base_onchain"
     ) -> list[BalanceCorrection]:
         decimals = await self.get_decimals()
         factor = 10 ** decimals
@@ -66,7 +68,7 @@ class RebaseValidator:
                 if abs(diff) > threshold:
                     corrections.append(
                         BalanceCorrection(
-                            exchange=exchange,
+                            provider=provider,
                             symbol=f"correction:{self.token_address}",
                             symbol_raw=self.token_address,
                             exchange_ts=None,

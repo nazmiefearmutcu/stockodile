@@ -1536,6 +1536,136 @@ def resample(
 
 
 # ---------------------------------------------------------------------------
+# indicators
+# ---------------------------------------------------------------------------
+@app.command()
+def indicators(
+    symbol: Annotated[
+        str | None,
+        typer.Option("--symbol", help="Canonical symbol, e.g. alpaca:AAPL."),
+    ] = None,
+    indicator: Annotated[
+        str | None,
+        typer.Option(
+            "--indicator",
+            help="Indicator to calculate (sma, ema, rsi, macd, bb, or all).",
+        ),
+    ] = None,
+    period: Annotated[
+        int,
+        typer.Option(
+            "--period",
+            help="Smoothing/lookback window size (used for SMA, EMA, RSI, BB).",
+        ),
+    ] = 14,
+    frm: Annotated[
+        int | None,
+        typer.Option("--from", help="Start of time range (nanoseconds UTC)."),
+    ] = None,
+    to: Annotated[
+        int | None,
+        typer.Option("--to", help="End of time range (nanoseconds UTC)."),
+    ] = None,
+    interval: Annotated[
+        str,
+        typer.Option("--interval", help="Resampling interval (e.g. 1m, 1h, 1d)."),
+    ] = "1d",
+    data_dir: _DataDirOpt = Path("data"),
+) -> None:
+    """Calculate technical analysis indicators (SMA, EMA, RSI, MACD, BB) using Polars."""
+    from stockodile.analytics import (
+        calculate_bollinger_bands,
+        calculate_ema,
+        calculate_macd,
+        calculate_rsi,
+        calculate_sma,
+    )
+    from stockodile.client.client import StockodileClient
+
+    data_dir = resolve_data_dir(data_dir)
+
+    if not is_interactive_stdin():
+        if not symbol:
+            typer.echo("Error: symbol is required in non-interactive mode.", err=True)
+            raise typer.Exit(code=1)
+        if frm is None:
+            frm = 0
+        if to is None:
+            to = 9999999999999999999
+    else:
+        # Interactive
+        if not symbol:
+            symbol = prompt_symbol("Symbol (e.g. AAPL)", data_dir, channel="trade")
+        if frm is None or to is None:
+            resolved_start, resolved_end = prompt_time_range_helper(
+                data_dir,
+                "trade",
+                [symbol],
+                default_start=0,
+                default_end=9999999999999999999,
+            )
+            if frm is None:
+                frm = resolved_start
+            if to is None:
+                to = resolved_end
+
+    client = StockodileClient(data_dir=data_dir)
+    try:
+        df = client.resample(symbol, frm, to, interval, fill_empty=True)
+        if len(df) == 0:
+            typer.echo("No data found for the given symbol and time range.")
+            return
+
+        # Sort by bar timestamp to ensure calculations are correct
+        df = df.sort("bar")
+        close_series = df["close"]
+
+        if indicator == "sma":
+            res = df.with_columns(calculate_sma(close_series, period).alias("sma"))
+        elif indicator == "ema":
+            res = df.with_columns(calculate_ema(close_series, period).alias("ema"))
+        elif indicator == "rsi":
+            res = df.with_columns(calculate_rsi(close_series, period).alias("rsi"))
+        elif indicator == "macd":
+            macd, signal, hist = calculate_macd(close_series)
+            res = df.with_columns(
+                macd.alias("macd"),
+                signal.alias("signal"),
+                hist.alias("hist")
+            )
+        elif indicator == "bb":
+            upper, middle, lower = calculate_bollinger_bands(close_series, period=period)
+            res = df.with_columns(
+                upper.alias("bb_upper"),
+                middle.alias("bb_middle"),
+                lower.alias("bb_lower")
+            )
+        elif not indicator or indicator == "all":
+            # calculate all indicators and append
+            macd, signal, hist = calculate_macd(close_series)
+            upper, middle, lower = calculate_bollinger_bands(close_series, period=period)
+            res = df.with_columns(
+                calculate_sma(close_series, period).alias("sma"),
+                calculate_ema(close_series, period).alias("ema"),
+                calculate_rsi(close_series, period).alias("rsi"),
+                macd.alias("macd"),
+                signal.alias("signal"),
+                hist.alias("hist"),
+                upper.alias("bb_upper"),
+                middle.alias("bb_middle"),
+                lower.alias("bb_lower")
+            )
+        else:
+            typer.echo(f"Error: Unknown indicator '{indicator}'", err=True)
+            raise typer.Exit(code=1)
+
+        typer.echo(res)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+
+# ---------------------------------------------------------------------------
 # shell
 # ---------------------------------------------------------------------------
 @app.command()

@@ -1,8 +1,8 @@
 import logging
 from typing import Any
 
-import eth_abi
-from eth_utils import to_checksum_address
+import eth_abi  # type: ignore[import-untyped,attr-defined]
+from eth_utils import to_checksum_address  # type: ignore[import-untyped,attr-defined]
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +59,8 @@ def decode_1inch_order_filled(
     else:
         # Default fallback
         order_hash = topics[1] if len(topics) > 1 else "0x" + "0" * 64
-        maker = to_checksum_address("0x" + topics[2][-40:]) if len(topics) > 2 else "0x" + "0" * 40
-        taker = to_checksum_address("0x" + topics[3][-40:]) if len(topics) > 3 else "0x" + "0" * 40
+        maker = to_checksum_address("0x" + topics[2][-40:] if len(topics) > 2 else "0x" + "0" * 40)
+        taker = to_checksum_address("0x" + topics[3][-40:] if len(topics) > 3 else "0x" + "0" * 40)
         decoded = eth_abi.decode(
             ["uint256", "uint256", "uint256"],
             data_bytes
@@ -136,13 +136,13 @@ def decode_0x_limit_order_filled(topics: list[str], data: str) -> dict[str, Any]
                     ["address", "address", "uint256", "uint256", "bytes32"],
                     data_bytes
                 )
-                maker = (
-                    to_checksum_address("0x" + topics[1][-40:])
+                maker = to_checksum_address(
+                    "0x" + topics[1][-40:]
                     if len(topics) > 1
                     else "0x" + "0" * 40
                 )
-                taker = (
-                    to_checksum_address("0x" + topics[2][-40:])
+                taker = to_checksum_address(
+                    "0x" + topics[2][-40:]
                     if len(topics) > 2
                     else "0x" + "0" * 40
                 )
@@ -166,10 +166,10 @@ def decode_0x_limit_order_filled(topics: list[str], data: str) -> dict[str, Any]
                 order_hash = "0x" + decoded[6].hex()
         except Exception:
             # Absolute fallback
-            maker = "0x" + "0" * 40
-            taker = "0x" + "0" * 40
-            maker_token = "0x" + "0" * 40
-            taker_token = "0x" + "0" * 40
+            maker = to_checksum_address("0x" + "0" * 40)
+            taker = to_checksum_address("0x" + "0" * 40)
+            maker_token = to_checksum_address("0x" + "0" * 40)
+            taker_token = to_checksum_address("0x" + "0" * 40)
             maker_amount = 0.0
             taker_amount = 0.0
             order_hash = "0x" + "0" * 64
