@@ -1755,6 +1755,7 @@ def shell() -> None:
     
     import signal
     original_handler = None
+    handler_installed = False
     if is_interactive and not is_pytest:
         try:
             original_handler = signal.getsignal(signal.SIGWINCH)
@@ -1767,8 +1768,11 @@ def shell() -> None:
                     original_handler(signum, frame)
                 except Exception:
                     pass
-            from prompt_toolkit.application import get_current_app
-            app = get_current_app()
+            try:
+                from prompt_toolkit.application import get_app_or_none
+                app = get_app_or_none()
+            except Exception:
+                app = None
             if app and app.renderer:
                 try:
                     app.renderer.reset(leave_alternate_screen=False)
@@ -1778,6 +1782,7 @@ def shell() -> None:
 
         try:
             signal.signal(signal.SIGWINCH, sigwinch_handler)
+            handler_installed = True
         except Exception:
             pass
 
@@ -1814,11 +1819,12 @@ def shell() -> None:
                 typer.echo("\nGoodbye!")
                 break
     finally:
-        if is_interactive and not is_pytest and original_handler:
+        if handler_installed:
             try:
                 signal.signal(signal.SIGWINCH, original_handler)
             except Exception:
                 pass
+
 
 
 # ---------------------------------------------------------------------------
