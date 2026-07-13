@@ -229,26 +229,19 @@ app.get('/api/payments', (req, res) => {
 });
 
 // 3. Register or Update Payment Ledger Endpoint (POST /api/payments)
-// Clients may create/update metadata only. Status "verified" is server-side only
-// (set by signature verification on GET /api/gated-data). Unauthenticated clients
-// cannot escalate a payment to verified via this endpoint.
+// Clients may create/update metadata only. Status is server-controlled:
+// - CREATE always starts as "pending" (client status is ignored entirely)
+// - UPDATE never mutates status from the client body (existing status left alone)
+// - Only GET /api/gated-data signature verification may set status to "verified"
 app.post('/api/payments', (req, res) => {
-  const { payment_id, status, sender, recipient, amount, currency, txHash, signature } = req.body;
+  const { payment_id, sender, recipient, amount, currency, txHash, signature } = req.body;
   if (!payment_id) {
     return res.status(400).json({ error: "payment_id is required" });
   }
 
-  // Never accept client-supplied verified; allow other non-privileged statuses
-  const safeClientStatus =
-    status && status !== 'verified' ? status : 'pending';
-
   let payment = paymentsLedger.find(p => p.payment_id === payment_id);
   if (payment) {
-    // Do not let clients elevate (or re-assert) verified; keep existing verified if set server-side
-    if (status && status !== 'verified') {
-      payment.status = status;
-    }
-    // If client tries status=verified while still pending, force remain pending (no-op)
+    // Metadata-only update: never mutate status from client body
     if (sender) payment.sender = sender;
     if (recipient) payment.recipient = recipient;
     if (amount) payment.amount = amount;
@@ -259,7 +252,7 @@ app.post('/api/payments', (req, res) => {
   } else {
     payment = {
       payment_id,
-      status: safeClientStatus,
+      status: 'pending',
       sender: sender || null,
       recipient: recipient || '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
       amount: amount || '0.10',

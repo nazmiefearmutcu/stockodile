@@ -110,8 +110,54 @@ test('GET /js/app.js returns 200 and static JS content', async (t) => {
   assert.match(response.text, /Stockodile x402 Micropayments Gated Portal Redesign/);
 });
 
-test('POST /api/payments rejects client-set status=verified (stays pending)', async (t) => {
+function postPayments(body) {
   // Polyfill supertest only supports GET; drive app handler directly for POST
+  return new Promise((resolve) => {
+    const req = new Readable({
+      read() {
+        this.push(Buffer.from(JSON.stringify(body)));
+        this.push(null);
+      }
+    });
+    req.url = '/api/payments';
+    req.method = 'POST';
+    req.headers = {
+      'content-type': 'application/json',
+      'content-length': String(JSON.stringify(body).length)
+    };
+    req.socket = { destroy: () => {}, remoteAddress: '127.0.0.1' };
+    // express polyfill may read req.body if pre-parsed
+    req.body = body;
+
+    const chunks = [];
+    const res = new Writable({
+      write(chunk, _enc, cb) {
+        chunks.push(Buffer.from(chunk));
+        cb();
+      }
+    });
+    res.statusCode = 200;
+    res.headers = {};
+    res.setHeader = (n, v) => { res.headers[n.toLowerCase()] = v; return res; };
+    res.getHeader = (n) => res.headers[n.toLowerCase()];
+    res.removeHeader = (n) => { delete res.headers[n.toLowerCase()]; };
+    res.writeHead = (status, headers) => {
+      res.statusCode = status;
+      if (headers) Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+      return res;
+    };
+    res.end = (chunk) => {
+      if (chunk) chunks.push(Buffer.from(chunk));
+      const text = Buffer.concat(chunks).toString('utf8');
+      let parsed = null;
+      try { parsed = JSON.parse(text); } catch (_) {}
+      resolve({ status: res.statusCode, body: parsed, text });
+    };
+    app(req, res);
+  });
+}
+
+test('POST /api/payments rejects client-set status=verified (stays pending)', async (t) => {
   const paymentId = 'client-cannot-verify-' + Date.now();
   const postBody = {
     payment_id: paymentId,
@@ -121,52 +167,6 @@ test('POST /api/payments rejects client-set status=verified (stays pending)', as
     currency: 'USD',
     txHash: '0x' + 'ab'.repeat(32)
   };
-
-  function postPayments(body) {
-    return new Promise((resolve) => {
-      const req = new Readable({
-        read() {
-          this.push(Buffer.from(JSON.stringify(body)));
-          this.push(null);
-        }
-      });
-      req.url = '/api/payments';
-      req.method = 'POST';
-      req.headers = {
-        'content-type': 'application/json',
-        'content-length': String(JSON.stringify(body).length)
-      };
-      req.socket = { destroy: () => {}, remoteAddress: '127.0.0.1' };
-      // express polyfill may read req.body if pre-parsed
-      req.body = body;
-
-      const chunks = [];
-      const res = new Writable({
-        write(chunk, _enc, cb) {
-          chunks.push(Buffer.from(chunk));
-          cb();
-        }
-      });
-      res.statusCode = 200;
-      res.headers = {};
-      res.setHeader = (n, v) => { res.headers[n.toLowerCase()] = v; return res; };
-      res.getHeader = (n) => res.headers[n.toLowerCase()];
-      res.removeHeader = (n) => { delete res.headers[n.toLowerCase()]; };
-      res.writeHead = (status, headers) => {
-        res.statusCode = status;
-        if (headers) Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
-        return res;
-      };
-      res.end = (chunk) => {
-        if (chunk) chunks.push(Buffer.from(chunk));
-        const text = Buffer.concat(chunks).toString('utf8');
-        let parsed = null;
-        try { parsed = JSON.parse(text); } catch (_) {}
-        resolve({ status: res.statusCode, body: parsed, text });
-      };
-      app(req, res);
-    });
-  }
 
   const response = await postPayments(postBody);
   assert.strictEqual(response.status, 200);
@@ -181,6 +181,41 @@ test('POST /api/payments rejects client-set status=verified (stays pending)', as
     .set('Payment-Signature', '0x' + '11'.repeat(65))
     .expect(400);
   assert.ok(gated.body.error);
+});
+
+test('POST /api/payments demote fails (status stays verified after client sets pending)', async (t) => {
+  // Seed a verified payment via gated-data signature path, then attempt client demote
+  const handshake = await request(app).get('/api/gated-data').expect(402);
+  const paymentId = handshake.body.payment_id;
+  const wallet = ethers.Wallet.createRandom();
+  const signature = await wallet.signMessage(paymentId);
+
+  const unlock = await request(app)
+    .get('/api/gated-data')
+    .set('Payment-Id', paymentId)
+    .set('Payment-Sender', wallet.address)
+    .set('Payment-Signature', signature)
+    .expect(200);
+  assert.strictEqual(unlock.body.payment.status, 'verified');
+
+  // Client tries to demote verified → pending via POST update
+  const demote = await postPayments({
+    payment_id: paymentId,
+    status: 'pending',
+    sender: wallet.address,
+    amount: '0.10',
+    currency: 'USD'
+  });
+  assert.strictEqual(demote.status, 200);
+  assert.strictEqual(demote.body.status, 'verified', 'Client must not demote verified status via POST');
+
+  // Ledger still reflects verified
+  const ledger = await request(app)
+    .get(`/api/payments?search=${paymentId}`)
+    .expect(200);
+  const record = ledger.body.payments.find(p => p.payment_id === paymentId);
+  assert.ok(record);
+  assert.strictEqual(record.status, 'verified');
 });
 
 test('GET /js/utils.js exposes escapeHtml helper', async (t) => {
