@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockodile x402 Micropayments Gated API Web Portal</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.1/dist/ethers.umd.min.js" defer></script>
+</head>
+<body class="h-full flex flex-col font-sans">
+    <nav class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between shadow-md gap-3">
+        <span class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            Stockodile x402
+        </span>
+        <div class="flex flex-wrap items-center gap-2">
+            <button id="connect-wallet-btn" type="button">🔗 Connect Wallet</button>
+            <button id="disconnect-wallet-btn" type="button" class="hidden">Disconnect</button>
+            <button id="one-click-sim-btn" type="button">⚡ One-Click Simulation</button>
+            <span id="wallet-address" class="hidden font-mono text-xs"></span>
+            <div id="wallet-provider-alert" class="hidden"></div>
+            <div id="wallet-signature-status" class="hidden"></div>
+        </div>
+    </nav>
+
+    <main class="flex-1 overflow-y-auto p-6 space-y-6">
+        <!-- Metrics -->
+        <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Live Price</div>
+                <h2 id="metrics-live-price">$--.--</h2>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Total Fees</div>
+                <div id="metrics-total-fees">0.00 USD</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Verified</div>
+                <div id="metrics-verified-count">0</div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-500 uppercase">Pending</div>
+                <div id="metrics-pending-count">0</div>
+            </div>
+        </section>
+
+        <!-- Chart -->
+        <section class="relative">
+            <div id="chart-loading-overlay" class="hidden">Loading price feed…</div>
+            <canvas id="price-chart-canvas" height="120"></canvas>
+        </section>
+
+        <!-- Settings -->
+        <section class="space-y-2">
+            <h3>Portal Settings</h3>
+            <label class="block text-xs text-slate-500">RPC Endpoint
+                <input type="text" id="settings-rpc-input" value="https://api.stockodile.org">
+            </label>
+            <label class="block text-xs text-slate-500">Contract / Recipient
+                <input type="text" id="settings-contract-input" value="0x70997970C51812dc3A010C7d01b50e0d17dc79C8">
+            </label>
+            <label class="block text-xs text-slate-500">Gated Fee
+                <input type="number" id="settings-fee-input" value="0.10" step="0.01">
+            </label>
+            <button id="settings-save-btn" type="button">Save</button>
+        </section>
+
+        <!-- API Request Builder -->
+        <section class="space-y-2">
+            <h3>API Request Builder</h3>
+            <div class="flex flex-wrap gap-2 items-center">
+                <select id="api-method-select">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                </select>
+                <input type="text" id="api-path-input" value="/api/gated-data">
+                <button id="api-send-btn" type="button">Send Request</button>
+                <span id="api-status-badge" class="hidden"></span>
+            </div>
+            <div>
+                <button id="api-add-param-btn" type="button">+ Add Param</button>
+                <div id="api-params-container"></div>
+            </div>
+            <pre id="api-headers-preview"></pre>
+            <pre id="api-response-console"></pre>
+            <div id="api-response-rendered"></div>
+        </section>
+
+        <!-- Debugger Stepper -->
+        <section class="space-y-2 relative pl-8">
+            <h3>Payment Debugger</h3>
+            <div id="debugger-step-handshake">1</div>
+            <div id="debugger-step-recovery">2</div>
+            <div id="debugger-step-matching">3</div>
+            <div id="debugger-step-confirmation">4</div>
+            <div id="debugger-step-unlocked">5</div>
+            <div id="debugger-message">Debugger initialized. Ready to record request steps.</div>
+        </section>
+
+        <!-- Payments Ledger -->
+        <section class="space-y-2">
+            <h3>Payments Ledger</h3>
+            <div class="flex flex-wrap gap-2 items-center">
+                <input type="text" id="ledger-search-input" placeholder="Search payment_id, sender, txHash">
+                <select id="ledger-status-filter">
+                    <option value="">All statuses</option>
+                    <option value="pending">pending</option>
+                    <option value="verified">verified</option>
+                </select>
+                <button id="ledger-sort-timestamp" type="button">Sort Timestamp</button>
+                <button id="ledger-sort-amount" type="button">Sort Amount</button>
+                <button id="ledger-export-json" type="button">Export JSON</button>
+                <button id="ledger-export-csv" type="button">Export CSV</button>
+            </div>
+            <table class="w-full text-left text-xs">
+                <thead>
+                    <tr>
+                        <th>Payment ID</th>
+                        <th>Timestamp</th>
+                        <th>Sender</th>
+                        <th>Amount</th>
+                        <th>Tx Hash</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="ledger-table-body"></tbody>
+            </table>
+            <div class="flex items-center gap-2">
+                <button id="ledger-prev-btn" type="button">Prev</button>
+                <span id="ledger-page-info">Page 1 of 1</span>
+                <button id="ledger-next-btn" type="button">Next</button>
+            </div>
+        </section>
+
+        <!-- SSE Event Stream -->
+        <section class="space-y-2">
+            <h3>SSE Event Stream</h3>
+            <div class="flex flex-wrap items-center gap-2">
+                <div id="sse-status-dot"></div>
+                <div id="sse-status-text">Disconnected</div>
+                <button id="sse-reconnect-btn" type="button">Reconnect</button>
+                <button id="sse-clear-btn" type="button">Clear</button>
+                <label class="text-xs">
+                    <input type="checkbox" id="sse-autoscroll-chk" checked>
+                    Autoscroll
+                </label>
+            </div>
+            <pre id="sse-log-console" class="max-h-64 overflow-y-auto"></pre>
+        </section>
+    </main>
+
+    <script src="/js/store.js"></script>
+    <script src="/js/utils.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

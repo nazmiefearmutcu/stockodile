@@ -4,6 +4,22 @@
  */
 
 /**
+ * Escape untrusted strings for safe insertion into HTML (innerHTML sinks).
+ * Converts &, <, >, ", and ' to HTML entities.
+ */
+function escapeHtml(unsafe) {
+    if (unsafe == null) {
+        return '';
+    }
+    return String(unsafe)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+/**
  * Returns time string formatted as "hh:mm:ss A" using GMT+3.
  */
 function getSyncedTime(dateInput = null) {
@@ -76,6 +92,7 @@ function generateTimeSeriesData(basePrice, length = 20) {
 }
 
 // Expose utilities on window object for browser compatibility
+window.escapeHtml = escapeHtml;
 window.getSyncedTime = getSyncedTime;
 window.generateValidMockSignature = generateValidMockSignature;
 window.generateMockSignature = generateValidMockSignature; // Compatibility mapping for generateMockSignature
@@ -83,6 +100,7 @@ window.generateTimeSeriesData = generateTimeSeriesData;
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+        escapeHtml,
         getSyncedTime,
         generateValidMockSignature,
         generateTimeSeriesData

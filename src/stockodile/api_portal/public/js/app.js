@@ -147,6 +147,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return window.getSyncedTime(dateInput);
     }
 
+    /** Escape untrusted values before any innerHTML interpolation. */
+    function escapeHtml(value) {
+        if (typeof window.escapeHtml === 'function') {
+            return window.escapeHtml(value);
+        }
+        if (value == null) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function mapStageToStep(stage) {
         switch (stage) {
             case 'signature_recovery':
@@ -209,7 +223,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const logLine = document.createElement('div');
         logLine.className = `py-0.5 border-b border-slate-900/40 ${isBold ? 'font-bold' : ''}`;
         logLine.setAttribute('style', colorStyle);
-        logLine.innerHTML = `[${timeStr}] [${type.toUpperCase()}] ${message}`;
+        // SSE / payment messages are untrusted — never assign as HTML
+        logLine.textContent = `[${timeStr}] [${String(type).toUpperCase()}] ${message == null ? '' : String(message)}`;
         
         if (dom.sseLogConsole) {
             dom.sseLogConsole.appendChild(logLine);
@@ -339,19 +354,25 @@ document.addEventListener('DOMContentLoaded', () => {
             renderedContainer.innerHTML = '';
             if (payload && payload.status === 'success' && payload.data && typeof payload.data === 'object') {
                 const mdata = payload.data;
-                const symbol = mdata.symbol || 'N/A';
+                const symbol = escapeHtml(mdata.symbol || 'N/A');
+                const pool = escapeHtml(mdata.pool_address || 'N/A');
+                const token0 = escapeHtml(mdata.token0 || 'N/A');
+                const token1 = escapeHtml(mdata.token1 || 'N/A');
+                const price = escapeHtml(mdata.price_usdc || mdata.price || 'N/A');
+                const tick = escapeHtml(mdata.tick || '0');
+                const liquidity = escapeHtml(mdata.liquidity || 'N/A');
                 const tableHtml = `
                     <div class="mt-4 p-4 rounded-lg bg-emerald-950/20 border border-emerald-500/20">
                         <h4 class="text-sm font-semibold text-emerald-400 mb-2">Normalized Market Data Result</h4>
                         <table class="w-full text-left text-xs border-collapse font-mono">
                             <tbody>
                                 <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Asset Symbol</td><td class="py-2 font-bold text-cyan-400">${symbol}</td></tr>
-                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Data Source Provider</td><td class="py-2 text-slate-300">${mdata.pool_address || 'N/A'}</td></tr>
-                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Base Asset</td><td class="py-2 text-slate-400 text-[10px]">${mdata.token0 || 'N/A'}</td></tr>
-                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Quote Asset (USD)</td><td class="py-2 text-slate-400 text-[10px]">${mdata.token1 || 'N/A'}</td></tr>
-                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Current Stock Price</td><td class="py-2 font-bold text-emerald-400">${mdata.price_usdc || mdata.price || 'N/A'} USD</td></tr>
-                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Current Tick / Bid Size</td><td class="py-2 text-slate-300">${mdata.tick || '0'}</td></tr>
-                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Current Trade Volume</td><td class="py-2 text-slate-300">${mdata.liquidity || 'N/A'}</td></tr>
+                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Data Source Provider</td><td class="py-2 text-slate-300">${pool}</td></tr>
+                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Base Asset</td><td class="py-2 text-slate-400 text-[10px]">${token0}</td></tr>
+                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Quote Asset (USD)</td><td class="py-2 text-slate-400 text-[10px]">${token1}</td></tr>
+                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Current Stock Price</td><td class="py-2 font-bold text-emerald-400">${price} USD</td></tr>
+                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Current Tick / Bid Size</td><td class="py-2 text-slate-300">${tick}</td></tr>
+                                <tr class="border-b border-slate-800"><td class="py-2 text-slate-400">Current Trade Volume</td><td class="py-2 text-slate-300">${liquidity}</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -361,7 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderedContainer.innerHTML = `
                     <div class="mt-4 p-4 rounded-lg bg-emerald-950/20 border border-emerald-500/20">
                         <h4 class="text-sm font-semibold text-emerald-400 mb-1">Gated Content Unlocked</h4>
-                        <p class="text-xs text-slate-300">${payload.data}</p>
+                        <p class="text-xs text-slate-300">${escapeHtml(payload.data)}</p>
                     </div>
                 `;
             }
@@ -800,7 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (state.isConnected && state.address) {
                 const maskedAddress = state.address.slice(0, 6) + '...' + state.address.slice(-4);
                 if (dom.connectWalletBtn) {
-                    dom.connectWalletBtn.innerHTML = `🔗 ${maskedAddress}`;
+                    dom.connectWalletBtn.textContent = `🔗 ${maskedAddress}`;
                     dom.connectWalletBtn.className = "bg-cyan-900/60 text-cyan-300 border border-cyan-500/30 text-xs font-bold px-4 py-2.5 rounded-xl transition-all flex items-center gap-1 cursor-default";
                 }
                 
@@ -819,7 +840,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 logConsole('info', `Active Wallet Updated: Connected - ${state.address}`);
             } else {
                 if (dom.connectWalletBtn) {
-                    dom.connectWalletBtn.innerHTML = `🔗 Connect Wallet`;
+                    dom.connectWalletBtn.textContent = `🔗 Connect Wallet`;
                     dom.connectWalletBtn.className = "bg-gradient-to-r from-cyan-600 to-sky-500 hover:from-cyan-500 hover:to-sky-400 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg hover:shadow-cyan-500/20 active:scale-95 transition-all flex items-center gap-1";
                 }
                 
@@ -1025,13 +1046,14 @@ document.addEventListener('DOMContentLoaded', () => {
             logConsole('payment', 'Simulating payment transaction receipt to ledger...', 'pending');
 
             const postUrl = isPythonBackend ? '/api/v1/simulate-payment' : '/api/payments';
+            // Client may only register pending metadata; server sets verified on gated-data confirm
             const postBody = isPythonBackend ? {
                 payment_id: activePaymentId,
                 tx_hash: mockTxHash,
                 signature: signature
             } : {
                 payment_id: activePaymentId,
-                status: 'verified',
+                status: 'pending',
                 sender: walletAddress,
                 recipient: activeRecipient,
                 amount: activeFee,
@@ -1050,7 +1072,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('On-chain simulation rejected by payments ledger.');
             }
 
-            logConsole('payment', `Transaction confirmed on-chain. Hash: ${mockTxHash.slice(0, 20)}...`, 'success');
+            logConsole('payment', `Transaction registered as pending. Hash: ${mockTxHash.slice(0, 20)}...`, 'success');
 
             setStepStatus('confirmation', 'pending', 'Sending authorized query to gated API...');
             logConsole('verification', 'Re-executing gated API endpoint with security headers...', 'pending');
@@ -1139,13 +1161,14 @@ document.addEventListener('DOMContentLoaded', () => {
             logConsole('payment', 'Submitting transaction data to register verified payment...', 'pending');
             
             const postUrl = isPythonBackend ? '/api/v1/simulate-payment' : '/api/payments';
+            // Client registers pending only; GET /api/gated-data elevates to verified server-side
             const postBody = isPythonBackend ? {
                 payment_id: paymentId,
                 tx_hash: mockTxHash,
                 signature: signature
             } : {
                 payment_id: paymentId,
-                status: 'verified',
+                status: 'pending',
                 sender: mockAddress,
                 recipient: recipient,
                 amount: fee,
@@ -1164,7 +1187,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Server rejected simulated payment registration.');
             }
 
-            logConsole('payment', `Simulated ledger payment marked verified. Hash: ${mockTxHash.slice(0, 16)}...`, 'success');
+            logConsole('payment', `Simulated ledger payment registered (pending). Hash: ${mockTxHash.slice(0, 16)}...`, 'success');
 
             setStepStatus('confirmation', 'pending', 'Awaiting block validation...');
             logConsole('verification', 'Hitting GET endpoint with custom authentication headers...', 'pending');
@@ -1359,27 +1382,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const senderText = sender ? `${sender.slice(0, 6)}...${sender.slice(-4)}` : 'N/A';
             const txHashText = txHash ? `${txHash.slice(0, 8)}...${txHash.slice(-6)}` : 'N/A';
+            const safePaymentId = escapeHtml(p.payment_id);
+            const safePaymentIdShort = escapeHtml(String(p.payment_id).slice(0, 8));
+            const safeSender = escapeHtml(sender);
+            const safeSenderText = escapeHtml(senderText);
+            const safeTxHash = escapeHtml(txHash);
+            const safeTxHashText = escapeHtml(txHashText);
+            const safeAmount = escapeHtml(p.amount);
+            const safeCurrency = escapeHtml(p.currency);
+            const safeStatus = escapeHtml(p.status);
+            const safeTimestamp = escapeHtml(getCurrentTime(p.timestamp));
+            // Encode for URL path segments so href cannot break out of attribute
+            const senderHref = sender ? `https://stockodile.org/address/${encodeURIComponent(sender)}` : '';
+            const txHref = txHash ? `https://stockodile.org/tx/${encodeURIComponent(txHash)}` : '';
 
+            // Copy buttons use data-copy + event listeners (no inline onclick with untrusted values)
             tr.innerHTML = `
                 <td class="py-3 px-2 flex items-center space-x-1 font-mono">
-                    <span class="text-cyan-400">${p.payment_id.slice(0, 8)}...</span>
-                    <button onclick="navigator.clipboard.writeText('${p.payment_id}'); alert('Payment ID copied!');" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="Copy Payment ID">
+                    <span class="text-cyan-400">${safePaymentIdShort}...</span>
+                    <button type="button" data-copy="${safePaymentId}" data-copy-label="Payment ID" class="ledger-copy-btn text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="Copy Payment ID">
                         <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                         </svg>
                     </button>
                 </td>
-                <td class="py-3 px-2 text-slate-400 font-mono">${getCurrentTime(p.timestamp)}</td>
+                <td class="py-3 px-2 text-slate-400 font-mono">${safeTimestamp}</td>
                 <td class="py-3 px-2 text-slate-400 font-mono">
                     <div class="flex items-center space-x-1">
-                        <span>${senderText}</span>
+                        <span>${safeSenderText}</span>
                         ${sender && sender !== 'N/A' ? `
-                        <button onclick="navigator.clipboard.writeText('${sender}'); alert('Sender Address copied!');" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="Copy Sender Address">
+                        <button type="button" data-copy="${safeSender}" data-copy-label="Sender Address" class="ledger-copy-btn text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="Copy Sender Address">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                             </svg>
                         </button>
-                        <a href="https://stockodile.org/address/${sender}" target="_blank" rel="noopener noreferrer" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="View on Stockodile">
+                        <a href="${escapeHtml(senderHref)}" target="_blank" rel="noopener noreferrer" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="View on Stockodile">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                             </svg>
@@ -1387,17 +1424,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         ` : ''}
                     </div>
                 </td>
-                <td class="py-3 px-2 font-bold text-slate-200">${p.amount} ${p.currency}</td>
+                <td class="py-3 px-2 font-bold text-slate-200">${safeAmount} ${safeCurrency}</td>
                 <td class="py-3 px-2 text-slate-400 font-mono">
                     <div class="flex items-center space-x-1">
-                        <span>${txHashText}</span>
+                        <span>${safeTxHashText}</span>
                         ${txHash && txHash !== 'N/A' ? `
-                        <button onclick="navigator.clipboard.writeText('${txHash}'); alert('Transaction Hash copied!');" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="Copy Transaction Hash">
+                        <button type="button" data-copy="${safeTxHash}" data-copy-label="Transaction Hash" class="ledger-copy-btn text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="Copy Transaction Hash">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                             </svg>
                         </button>
-                        <a href="https://stockodile.org/tx/${txHash}" target="_blank" rel="noopener noreferrer" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="View on Stockodile">
+                        <a href="${escapeHtml(txHref)}" target="_blank" rel="noopener noreferrer" class="text-slate-500 hover:text-cyan-400 transition-all active:scale-90 focus:outline-none" title="View on Stockodile">
                             <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                             </svg>
@@ -1407,10 +1444,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 </td>
                 <td class="py-3 px-2">
                     <span class="px-2 py-0.5 rounded text-[10px] uppercase font-bold ${badgeClass}">
-                        ${p.status}
+                        ${safeStatus}
                     </span>
                 </td>
             `;
+            tr.querySelectorAll('.ledger-copy-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const value = btn.getAttribute('data-copy') || '';
+                    const label = btn.getAttribute('data-copy-label') || 'Value';
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(value).then(() => {
+                            alert(`${label} copied!`);
+                        }).catch(() => {
+                            alert(`${label} copy failed`);
+                        });
+                    } else {
+                        alert(`${label}: ${value}`);
+                    }
+                });
+            });
             dom.ledgerTableBody.appendChild(tr);
         });
 

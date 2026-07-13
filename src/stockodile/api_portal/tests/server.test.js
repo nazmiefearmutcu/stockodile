@@ -110,6 +110,87 @@ test('GET /js/app.js returns 200 and static JS content', async (t) => {
   assert.match(response.text, /Stockodile x402 Micropayments Gated Portal Redesign/);
 });
 
+test('POST /api/payments rejects client-set status=verified (stays pending)', async (t) => {
+  // Polyfill supertest only supports GET; drive app handler directly for POST
+  const paymentId = 'client-cannot-verify-' + Date.now();
+  const postBody = {
+    payment_id: paymentId,
+    status: 'verified',
+    sender: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
+    amount: '0.10',
+    currency: 'USD',
+    txHash: '0x' + 'ab'.repeat(32)
+  };
+
+  function postPayments(body) {
+    return new Promise((resolve) => {
+      const req = new Readable({
+        read() {
+          this.push(Buffer.from(JSON.stringify(body)));
+          this.push(null);
+        }
+      });
+      req.url = '/api/payments';
+      req.method = 'POST';
+      req.headers = {
+        'content-type': 'application/json',
+        'content-length': String(JSON.stringify(body).length)
+      };
+      req.socket = { destroy: () => {}, remoteAddress: '127.0.0.1' };
+      // express polyfill may read req.body if pre-parsed
+      req.body = body;
+
+      const chunks = [];
+      const res = new Writable({
+        write(chunk, _enc, cb) {
+          chunks.push(Buffer.from(chunk));
+          cb();
+        }
+      });
+      res.statusCode = 200;
+      res.headers = {};
+      res.setHeader = (n, v) => { res.headers[n.toLowerCase()] = v; return res; };
+      res.getHeader = (n) => res.headers[n.toLowerCase()];
+      res.removeHeader = (n) => { delete res.headers[n.toLowerCase()]; };
+      res.writeHead = (status, headers) => {
+        res.statusCode = status;
+        if (headers) Object.entries(headers).forEach(([k, v]) => res.setHeader(k, v));
+        return res;
+      };
+      res.end = (chunk) => {
+        if (chunk) chunks.push(Buffer.from(chunk));
+        const text = Buffer.concat(chunks).toString('utf8');
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch (_) {}
+        resolve({ status: res.statusCode, body: parsed, text });
+      };
+      app(req, res);
+    });
+  }
+
+  const response = await postPayments(postBody);
+  assert.strictEqual(response.status, 200);
+  assert.strictEqual(response.body.status, 'pending');
+  assert.strictEqual(response.body.payment_id, paymentId);
+
+  // Gated short-circuit must not unlock without server-side verification
+  const gated = await request(app)
+    .get('/api/gated-data')
+    .set('Payment-Id', paymentId)
+    .set('Payment-Sender', '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266')
+    .set('Payment-Signature', '0x' + '11'.repeat(65))
+    .expect(400);
+  assert.ok(gated.body.error);
+});
+
+test('GET /js/utils.js exposes escapeHtml helper', async (t) => {
+  const response = await request(app)
+    .get('/js/utils.js')
+    .expect(200);
+  assert.match(response.text, /function escapeHtml/);
+  assert.match(response.text, /window\.escapeHtml/);
+});
+
 test('Challenger Stress & Empirical Verification Test Suite', async (t) => {
   class MockReq extends Readable {
     constructor(url, method, headers, body = null) {
@@ -273,6 +354,7 @@ test('Challenger Stress & Empirical Verification Test Suite', async (t) => {
 
   const mockTxHash = '0x' + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
   
+  // Client POST cannot elevate to verified — only pending metadata is accepted
   const postRes = await inMemoryRequest('/api/payments', 'POST', { 'Content-Type': 'application/json' }, {
     payment_id: verifiedPaymentId,
     status: 'verified',
@@ -284,9 +366,9 @@ test('Challenger Stress & Empirical Verification Test Suite', async (t) => {
     signature: verifiedSignature
   });
   assert.strictEqual(postRes.status, 200);
-  assert.strictEqual(postRes.body.status, 'verified');
+  assert.strictEqual(postRes.body.status, 'pending', 'Client must not be able to set status=verified via POST');
 
-  // Call /api/gated-data with credentials
+  // Call /api/gated-data with credentials — server-side verification sets verified
   const getGatedRes = await inMemoryRequest('/api/gated-data', 'GET', {
     'Payment-Id': verifiedPaymentId,
     'Payment-Sender': clientWallet.address,
@@ -294,6 +376,7 @@ test('Challenger Stress & Empirical Verification Test Suite', async (t) => {
   });
   assert.strictEqual(getGatedRes.status, 200);
   assert.strictEqual(getGatedRes.body.status, 'success');
+  assert.strictEqual(getGatedRes.body.payment.status, 'verified');
 
   // Test SSE Headers
   const resSSE = await inMemoryRequest('/api/events', 'GET');
