@@ -109,6 +109,10 @@ class MsnMoneyProvider(Provider):
         start_ns: int,
         end_ns: int,
     ) -> AsyncIterator[Record]:
+        if not self.apikey:
+            raise ValueError(
+                "MSN Money API key required. Set MSN_MONEY_APIKEY or pass apikey=..."
+            )
         if self.session is None:
             self.session = aiohttp.ClientSession()
 

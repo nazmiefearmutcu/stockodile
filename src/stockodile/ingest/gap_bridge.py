@@ -257,21 +257,21 @@ class BookResyncBridge:
             len(self._buffer),
         )
 
-        # Update the sync state machine with the new snapshot anchor.
         if snap_seq is None:
+            # Abort resync cleanly — do not half-commit sync state
+            self._buffer = []
+            self._resyncing = False
             raise RuntimeError(
                 f"BookResyncBridge [{self._symbol}]: REST snapshot is missing a valid sequence_id"
             )
 
-        self._sync.set_snapshot(last_update_id=snap_seq)
-
         venue = getattr(self._sync, "_venue", "spot")
+        # Filter against tentative snapshot *before* committing sync machine
         kept_deltas: list[BookDelta] = []
         for delta in self._buffer:
             if delta.seq_id is None:
                 kept_deltas.append(delta)
             elif venue == "futures":
-                # Keep when seq_id >= snap_seq (boundary inclusive)
                 if delta.seq_id >= snap_seq:
                     kept_deltas.append(delta)
                 else:
@@ -282,7 +282,6 @@ class BookResyncBridge:
                         snap_seq,
                     )
             else:
-                # spot (default): keep when seq_id > snap_seq (boundary exclusive)
                 if delta.seq_id > snap_seq:
                     kept_deltas.append(delta)
                 else:
@@ -293,77 +292,80 @@ class BookResyncBridge:
                         snap_seq,
                     )
 
-        # Validate sequence continuity of kept deltas
+        # Validate sequence continuity of kept deltas before committing state
         from stockodile.replay.orderbook import BookGap
 
-        if kept_deltas:
-            first_delta = kept_deltas[0]
-            if venue == "futures":
-                first_prev_seq = first_delta.prev_seq_id
-                first_seq = first_delta.seq_id
-                if first_prev_seq is None or first_seq is None:
-                    raise RuntimeError(
-                        "Futures delta is missing sequence IDs: "
-                        f"prev={first_prev_seq}, seq={first_seq}"
-                    )
-                if not (first_prev_seq < snap_seq <= first_seq):
-                    raise BookGap(
-                        "First kept futures delta does not cover snapshot boundary: "
-                        f"prev_seq_id={first_prev_seq} < snap_seq={snap_seq} "
-                        f"<= seq_id={first_seq}"
-                    )
-            else:
-                # spot
-                first_seq = first_delta.seq_id
-                if first_seq is None:
-                    raise RuntimeError("Spot delta is missing seq_id")
-                if first_seq != snap_seq + 1:
-                    raise BookGap(
-                        f"First kept spot delta does not cover snapshot boundary: "
-                        f"seq_id={first_seq}, expected={snap_seq + 1}"
-                    )
-
-            # Check subsequent deltas
-            prev_delta = first_delta
-            for delta in kept_deltas[1:]:
+        try:
+            if kept_deltas:
+                first_delta = kept_deltas[0]
                 if venue == "futures":
-                    curr_prev_seq = delta.prev_seq_id
-                    curr_seq = delta.seq_id
-                    prev_seq = prev_delta.seq_id
-                    if curr_prev_seq is None or curr_seq is None or prev_seq is None:
+                    first_prev_seq = first_delta.prev_seq_id
+                    first_seq = first_delta.seq_id
+                    if first_prev_seq is None or first_seq is None:
                         raise RuntimeError(
                             "Futures delta is missing sequence IDs: "
-                            f"prev={curr_prev_seq}, seq={curr_seq}"
+                            f"prev={first_prev_seq}, seq={first_seq}"
                         )
-                    if curr_prev_seq != prev_seq:
+                    if not (first_prev_seq < snap_seq <= first_seq):
                         raise BookGap(
-                            "Discontinuous kept futures deltas: "
-                            f"prev_seq_id={curr_prev_seq} "
-                            f"!= prev_delta.seq_id={prev_seq}"
+                            "First kept futures delta does not cover snapshot boundary: "
+                            f"prev_seq_id={first_prev_seq} < snap_seq={snap_seq} "
+                            f"<= seq_id={first_seq}"
                         )
                 else:
-                    # spot
-                    curr_seq = delta.seq_id
-                    prev_seq = prev_delta.seq_id
-                    if curr_seq is None or prev_seq is None:
+                    first_seq = first_delta.seq_id
+                    if first_seq is None:
                         raise RuntimeError("Spot delta is missing seq_id")
-                    if curr_seq != prev_seq + 1:
+                    if first_seq != snap_seq + 1:
                         raise BookGap(
-                            "Discontinuous kept spot deltas: "
-                            f"seq_id={curr_seq} "
-                            f"!= prev_delta.seq_id + 1={prev_seq + 1}"
+                            f"First kept spot delta does not cover snapshot boundary: "
+                            f"seq_id={first_seq}, expected={snap_seq + 1}"
                         )
-                prev_delta = delta
 
-            # Advance the sync machine pointers to match the last of the kept_deltas
+                prev_delta = first_delta
+                for delta in kept_deltas[1:]:
+                    if venue == "futures":
+                        curr_prev_seq = delta.prev_seq_id
+                        curr_seq = delta.seq_id
+                        prev_seq = prev_delta.seq_id
+                        if curr_prev_seq is None or curr_seq is None or prev_seq is None:
+                            raise RuntimeError(
+                                "Futures delta is missing sequence IDs: "
+                                f"prev={curr_prev_seq}, seq={curr_seq}"
+                            )
+                        if curr_prev_seq != prev_seq:
+                            raise BookGap(
+                                "Discontinuous kept futures deltas: "
+                                f"prev_seq_id={curr_prev_seq} "
+                                f"!= prev_delta.seq_id={prev_seq}"
+                            )
+                    else:
+                        curr_seq = delta.seq_id
+                        prev_seq = prev_delta.seq_id
+                        if curr_seq is None or prev_seq is None:
+                            raise RuntimeError("Spot delta is missing seq_id")
+                        if curr_seq != prev_seq + 1:
+                            raise BookGap(
+                                "Discontinuous kept spot deltas: "
+                                f"seq_id={curr_seq} "
+                                f"!= prev_delta.seq_id + 1={prev_seq + 1}"
+                            )
+                    prev_delta = delta
+        except Exception:
+            # Validation failed: abort resync without committing half-applied snapshot
+            self._buffer = []
+            self._resyncing = False
+            raise
+
+        # Commit only after validation succeeds
+        self._sync.set_snapshot(last_update_id=snap_seq)
+        if kept_deltas:
             self._sync._have_first = True
             self._sync._prev_u = kept_deltas[-1].seq_id
 
-        # Clear state
         self._buffer = []
         self._resyncing = False
 
-        # Return snapshot first, then kept deltas (in buffered order).
         result: list[BookRecord] = [snapshot]
         result.extend(kept_deltas)
         return result

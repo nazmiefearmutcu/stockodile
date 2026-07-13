@@ -29,6 +29,7 @@ async def test_msn_money_list_instruments() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     insts = await provider.list_instruments()
@@ -48,6 +49,7 @@ async def test_msn_money_no_ops() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     await provider._subscribe(None)
@@ -63,6 +65,7 @@ async def test_msn_money_resolve_sec_id() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     mock_suggest_resp = MagicMock()
@@ -97,6 +100,7 @@ async def test_msn_money_backfill_bar() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     # Mock suggests response
@@ -196,6 +200,7 @@ async def test_msn_money_backfill_corporate_action() -> None:
         channels=["corp_actions"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     mock_session = MagicMock()
@@ -264,6 +269,7 @@ async def test_msn_money_close() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     mock_session = AsyncMock()
@@ -283,6 +289,7 @@ async def test_msn_money_split_parsing_ratios() -> None:
         channels=["corp_actions"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     mock_session = MagicMock()
@@ -369,6 +376,7 @@ async def test_msn_money_autosuggest_class_suffixes() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     mock_session = MagicMock()
@@ -403,6 +411,7 @@ async def test_msn_money_float_conversion_vulnerability() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     mock_session = MagicMock()
@@ -461,6 +470,7 @@ async def test_msn_money_response_error_handling() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
 
     # 1. Non-200 suggest response
@@ -501,6 +511,7 @@ async def test_msn_money_run_not_implemented() -> None:
         channels=["bar"],
         out=sink,
         registry=registry,
+        apikey="test-key",
     )
     with pytest.raises(NotImplementedError):
         await provider.run()
@@ -551,3 +562,19 @@ def test_msn_money_apikey_explicit_overrides_env(monkeypatch: pytest.MonkeyPatch
         apikey="explicit-key",
     )
     assert provider.apikey == "explicit-key"
+
+
+@pytest.mark.asyncio
+async def test_msn_money_backfill_requires_apikey(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MSN_MONEY_APIKEY", raising=False)
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+    with pytest.raises(ValueError, match="API key required"):
+        async for _ in provider.backfill("bar", "AAPL", 0, 1):
+            pass

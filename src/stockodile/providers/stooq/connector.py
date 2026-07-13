@@ -485,7 +485,7 @@ class StooqProvider(Provider):
         method: str,
         url: str,
         **kwargs: Any,
-    ) -> aiohttp.ClientResponse:
+    ) -> aiohttp.ClientResponse | _BufferedResponse:
         session = self._get_session()
         for attempt in range(5):
             try:
