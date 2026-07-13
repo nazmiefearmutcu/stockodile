@@ -1,6 +1,6 @@
 import logging
-
 from typing import Any
+
 from web3 import AsyncWeb3
 
 from stockodile.schema.records import PoRUpdate
