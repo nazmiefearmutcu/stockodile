@@ -79,12 +79,14 @@ def test_rsi() -> None:
     # Setup price movement: prices increasing steadily
     prices = [10.0, 11.0, 12.0, 13.0, 14.0]
 
-    # All gains, zero losses. RSI should tend to 100.
+    # Wilder warm-up: first valid RSI at index == period (needs period+1 prices)
     res_list = calculate_rsi(prices, period=3)
     assert len(res_list) == 5
-    assert res_list[0] is None  # first diff is null
-    # Subsequent values should be 100.0 since average loss is 0.0
-    assert pytest.approx(res_list[1]) == 100.0
+    assert res_list[0] is None
+    assert res_list[1] is None
+    assert res_list[2] is None
+    # All gains, zero losses → RSI 100 after seed
+    assert pytest.approx(res_list[3]) == 100.0
     assert pytest.approx(res_list[4]) == 100.0
 
     # Steadily decreasing prices. RSI should tend to 0.
@@ -92,15 +94,19 @@ def test_rsi() -> None:
     res_dec = calculate_rsi(dec_prices, period=3)
     assert len(res_dec) == 5
     assert res_dec[0] is None
-    assert pytest.approx(res_dec[1]) == 0.0
+    assert res_dec[1] is None
+    assert res_dec[2] is None
+    assert pytest.approx(res_dec[3]) == 0.0
     assert pytest.approx(res_dec[4]) == 0.0
 
     # No price movement. RSI should be 50.0 since both average gain and loss are 0.0
-    flat_prices = [10.0, 10.0, 10.0, 10.0]
+    flat_prices = [10.0, 10.0, 10.0, 10.0, 10.0]
     res_flat = calculate_rsi(flat_prices, period=3)
-    assert len(res_flat) == 4
+    assert len(res_flat) == 5
     assert res_flat[0] is None
-    assert pytest.approx(res_flat[1]) == 50.0
+    assert res_flat[1] is None
+    assert res_flat[2] is None
+    assert pytest.approx(res_flat[3]) == 50.0
 
     # Error case
     with pytest.raises(ValueError):

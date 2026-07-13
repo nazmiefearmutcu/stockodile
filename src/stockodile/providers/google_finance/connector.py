@@ -57,8 +57,21 @@ def get_possible_google_symbols(symbol: str) -> list[str]:
     ]
 
 
-def parse_val_and_unit(val_str: str, key: str) -> tuple[float, str]:
+def parse_val_and_unit(val_str: str, key: str) -> tuple[float | None, str]:
+    """Parse a Google Finance metric string.
+
+    Returns ``(None, unit)`` when the value is missing/unparseable so callers
+    can skip emission instead of writing fake zeros.
+    """
     val_str = val_str.strip()
+    # Missing placeholders (ASCII hyphen + common unicode dashes)
+    if not val_str or val_str.upper() in ("N/A", "NA", "-", "--") or val_str in (
+        "\u2014",  # em dash
+        "\u2013",  # en dash
+        "\u2212",  # minus sign
+    ):
+        return None, "unknown"
+
     currency = "USD"
     if val_str.startswith("$"):
         currency = "USD"
@@ -75,7 +88,7 @@ def parse_val_and_unit(val_str: str, key: str) -> tuple[float, str]:
         try:
             return float(val_str.replace(",", "")), "percent"
         except ValueError:
-            return 0.0, "percent"
+            return None, "percent"
 
     multiplier = 1.0
     if val_str.endswith("T"):
@@ -95,7 +108,7 @@ def parse_val_and_unit(val_str: str, key: str) -> tuple[float, str]:
     try:
         val = float(val_str) * multiplier
     except ValueError:
-        val = 0.0
+        return None, "unknown"
 
     if key in (
         "Open",
@@ -244,18 +257,26 @@ class GoogleFinanceProvider(Provider):
                 if not price_el:
                     return []
 
-                price_str = price_el.get_text(strip=True)
-                # Robust currency and comma stripping
-                clean_price_str = price_str.strip()
-                for prefix in ["$", "€", "£", "¥", "₹", "A$", "C$", "HK$"]:
-                    if clean_price_str.startswith(prefix):
-                        clean_price_str = clean_price_str[len(prefix) :]
-                        break
-                clean_price_str = clean_price_str.replace(",", "").strip()
-                try:
-                    price = float(clean_price_str)
-                except ValueError:
-                    return []
+                # Prefer data-last-price attribute (numeric), then visible text
+                price: float | None = None
+                attr_price = price_el.get("data-last-price") if hasattr(price_el, "get") else None
+                if attr_price not in (None, ""):
+                    try:
+                        price = float(str(attr_price).replace(",", "").strip())
+                    except ValueError:
+                        price = None
+                if price is None:
+                    price_str = price_el.get_text(strip=True)
+                    clean_price_str = price_str.strip()
+                    for prefix in ["$", "€", "£", "¥", "₹", "A$", "C$", "HK$"]:
+                        if clean_price_str.startswith(prefix):
+                            clean_price_str = clean_price_str[len(prefix) :]
+                            break
+                    clean_price_str = clean_price_str.replace(",", "").strip()
+                    try:
+                        price = float(clean_price_str)
+                    except ValueError:
+                        return []
 
                 # Parse source timestamp
                 source_ts = None
@@ -315,6 +336,7 @@ class GoogleFinanceProvider(Provider):
                             )
                         )
                 else:
+                    # Google last-price is not an exchange print/NBBO — mark synthetic
                     if "trade" in self.channels:
                         records.append(
                             Trade(
@@ -326,6 +348,7 @@ class GoogleFinanceProvider(Provider):
                                 id="",
                                 price=price,
                                 size=1.0,
+                                conditions=["synthetic", "last_price"],
                             )
                         )
                     if "quote" in self.channels:
@@ -340,6 +363,9 @@ class GoogleFinanceProvider(Provider):
                                 bid_sz=1.0,
                                 ask_px=price,
                                 ask_sz=1.0,
+                                is_nbbo=False,
+                                is_consolidated=False,
+                                conditions=["synthetic", "last_price"],
                             )
                         )
 
@@ -383,6 +409,8 @@ class GoogleFinanceProvider(Provider):
                                     unit = "date"
                                 else:
                                     val, unit = parse_val_and_unit(val_text, key_text)
+                                    if val is None:
+                                        continue
                                 records.append(
                                     Fundamental(
                                         provider=self.name,

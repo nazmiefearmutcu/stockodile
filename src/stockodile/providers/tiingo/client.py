@@ -209,7 +209,8 @@ class TiingoClient:
     async def get_session(self) -> aiohttp.ClientSession:
         """Get or initialize the HTTP client session."""
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(total=60.0, connect=10.0)
+            self.session = aiohttp.ClientSession(timeout=timeout)
             self._own_session = True
         return self.session
 
@@ -270,7 +271,7 @@ class TiingoClient:
         Respects the 500 unique symbols/month limit and enforces rate limiting.
         """
         ticker_upper = ticker.upper()
-        await self.tracker.register_symbol(ticker_upper)
+        # Register only after successful response (quota is scarce: 500 symbols/month)
         await self.limiter.acquire()
 
         session = await self.get_session()
@@ -283,6 +284,14 @@ class TiingoClient:
             params["endDate"] = end_date
         if resample_freq:
             params["resampleFreq"] = resample_freq
+
+        interval_map = {
+            "daily": "1d",
+            "weekly": "1w",
+            "monthly": "1mo",
+            "annually": "1y",
+        }
+        bar_interval = interval_map.get((resample_freq or "daily").lower(), "1d")
 
         key = self._get_api_key()
         headers = {"Authorization": f"Token {key}"}
@@ -305,15 +314,23 @@ class TiingoClient:
                     raise TiingoError(
                         f"Failed to fetch EOD prices for {ticker}: HTTP {resp.status} - {body}"
                     )
-                if self.api_key_pool:
-                    self.api_key_pool.report_success("tiingo", key)
                 data = await resp.read()
         except aiohttp.ClientError as e:
             if self.api_key_pool:
                 self.api_key_pool.report_failure("tiingo", key)
             raise TiingoError(f"Network error while calling Tiingo: {e}") from e
 
-        raw_prices = msgspec.json.decode(data, type=list[TiingoEodPrice])
+        try:
+            raw_prices = msgspec.json.decode(data, type=list[TiingoEodPrice])
+        except Exception as e:
+            if self.api_key_pool:
+                self.api_key_pool.report_failure("tiingo", key)
+            raise TiingoError(f"Failed to decode Tiingo EOD response: {e}") from e
+
+        if self.api_key_pool:
+            self.api_key_pool.report_success("tiingo", key)
+        await self.tracker.register_symbol(ticker_upper)
+
         records: list[Record] = []
 
         for item in raw_prices:
@@ -326,7 +343,7 @@ class TiingoClient:
                 symbol_raw=ticker,
                 source_ts=source_ts,
                 local_ts=local_ts,
-                interval="1d",
+                interval=bar_interval,
                 open=item.open,
                 high=item.high,
                 low=item.low,
@@ -379,7 +396,6 @@ class TiingoClient:
         Respects the 500 unique symbols/month limit and enforces rate limiting.
         """
         ticker_upper = ticker.upper()
-        await self.tracker.register_symbol(ticker_upper)
         await self.limiter.acquire()
 
         session = await self.get_session()
@@ -414,15 +430,23 @@ class TiingoClient:
                     raise TiingoError(
                         f"Failed to fetch intraday bars for {ticker}: HTTP {resp.status} - {body}"
                     )
-                if self.api_key_pool:
-                    self.api_key_pool.report_success("tiingo", key)
                 data = await resp.read()
         except aiohttp.ClientError as e:
             if self.api_key_pool:
                 self.api_key_pool.report_failure("tiingo", key)
             raise TiingoError(f"Network error while calling Tiingo: {e}") from e
 
-        raw_prices = msgspec.json.decode(data, type=list[TiingoIexPrice])
+        try:
+            raw_prices = msgspec.json.decode(data, type=list[TiingoIexPrice])
+        except Exception as e:
+            if self.api_key_pool:
+                self.api_key_pool.report_failure("tiingo", key)
+            raise TiingoError(f"Failed to decode Tiingo IEX response: {e}") from e
+
+        if self.api_key_pool:
+            self.api_key_pool.report_success("tiingo", key)
+        await self.tracker.register_symbol(ticker_upper)
+
         bars: list[Bar] = []
 
         for item in raw_prices:

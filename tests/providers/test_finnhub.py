@@ -228,5 +228,7 @@ def test_finnhub_mid_session_error() -> None:
     # Other WebSocket error
     raw_msg = {"type": "error", "msg": "subscription limit exceeded"}
 
-    with pytest.raises(ValueError, match="subscription limit exceeded"):
+    from stockodile.providers.base import FatalProviderError
+
+    with pytest.raises(FatalProviderError, match="subscription limit exceeded"):
         list(provider.normalize(raw_msg, local_ts=999))

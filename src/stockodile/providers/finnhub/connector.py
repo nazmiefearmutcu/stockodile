@@ -155,10 +155,16 @@ class FinnhubProvider(Provider):
             )
 
         active_channels = [ch for ch in self.channels if ch in supported_channels]
-        if active_channels:
-            for sym in self.symbols:
-                sub_msg = {"type": "subscribe", "symbol": sym}
-                await transport.send(json.dumps(sub_msg).encode())
+        if not active_channels:
+            raise ValueError(
+                f"Finnhub has no supported channels among {self.channels!r} "
+                f"(supported: {sorted(supported_channels)})"
+            )
+        # Free Finnhub WS is trade-only; paid "quote" is not a separate BBO stream
+        # in the free subscribe protocol — only trade subscriptions are sent.
+        for sym in self.symbols:
+            sub_msg = {"type": "subscribe", "symbol": sym}
+            await transport.send(json.dumps(sub_msg).encode())
 
     def normalize(self, msg: object, local_ts: int) -> Iterable[Record]:
         if not isinstance(msg, dict):
@@ -167,11 +173,13 @@ class FinnhubProvider(Provider):
         if msg_type == "error":
             err_msg = msg.get("msg")
             log.error("Finnhub WebSocket error: %s", err_msg)
+            # Protocol-level failures are fatal (no silent DLQ-continue)
             if "token" in str(err_msg).lower() or "auth" in str(err_msg).lower():
                 raise FatalProviderError(f"Finnhub authentication failed: {err_msg}")
-            raise ValueError(f"Finnhub WebSocket error: {err_msg}")
+            raise FatalProviderError(f"Finnhub WebSocket error: {err_msg}")
 
-        if msg_type in ("trade", "quote"):
+        # Free WS trade prints only. Do not map "quote" frames to Trade.
+        if msg_type == "trade":
             data = msg.get("data")
             if not isinstance(data, list):
                 return
@@ -195,6 +203,8 @@ class FinnhubProvider(Provider):
                     )
                 except Exception as exc:
                     log.error("Finnhub normalize item error: %s (item: %s)", exc, item)
+        elif msg_type == "quote":
+            log.debug("Ignoring Finnhub quote frame (trade stream only): %s", msg)
 
     async def run(self, max_reconnects: int = -1) -> None:
         if self._running:

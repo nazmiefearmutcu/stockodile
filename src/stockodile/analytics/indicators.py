@@ -100,34 +100,58 @@ def calculate_rsi(
     prices: pl.Series | np.ndarray | Sequence[float | None],
     period: int,
 ) -> pl.Series | np.ndarray | list[float | None]:
-    """Calculate Relative Strength Index (RSI) over a given period using Wilder's smoothing."""
+    """Calculate Relative Strength Index (RSI) using Wilder's smoothing.
+
+    Warm-up: first *period* changes seed SMA averages; first valid RSI is at
+    index ``period`` (needs ``period + 1`` prices). Matches classic Wilder/TA-Lib.
+    """
     if period <= 0:
         raise ValueError("Period must be a positive integer.")
     series = _to_series(prices)
-    if len(series) == 0:
+    n = len(series)
+    if n == 0:
         return _from_series(series, prices)
 
     change = series.diff()
     gain = change.clip(lower_bound=0.0)
     loss = (-change).clip(lower_bound=0.0)
 
-    # Wilder's smoothing uses alpha = 1 / period
-    avg_gain = gain.ewm_mean(alpha=1.0 / period, adjust=False)
-    avg_loss = loss.ewm_mean(alpha=1.0 / period, adjust=False)
+    # Seed with SMA of first `period` gains/losses (indices 1..period), then Wilder
+    avg_gain_vals: list[float | None] = [None] * n
+    avg_loss_vals: list[float | None] = [None] * n
+    gain_list = gain.to_list()
+    loss_list = loss.to_list()
 
-    rs = avg_gain / avg_loss
+    if n > period:
+        seed_gains = [float(gain_list[i] or 0.0) for i in range(1, period + 1)]
+        seed_losses = [float(loss_list[i] or 0.0) for i in range(1, period + 1)]
+        avg_g = sum(seed_gains) / period
+        avg_l = sum(seed_losses) / period
+        avg_gain_vals[period] = avg_g
+        avg_loss_vals[period] = avg_l
+        for i in range(period + 1, n):
+            g = float(gain_list[i] or 0.0)
+            l = float(loss_list[i] or 0.0)
+            avg_g = (avg_g * (period - 1) + g) / period
+            avg_l = (avg_l * (period - 1) + l) / period
+            avg_gain_vals[i] = avg_g
+            avg_loss_vals[i] = avg_l
 
-    rsi_expr = (
-        pl.when(avg_loss.is_null() | avg_gain.is_null())
-        .then(None)
-        .when((avg_loss == 0.0) & (avg_gain == 0.0))
-        .then(50.0)
-        .when(avg_loss == 0.0)
-        .then(100.0)
-        .otherwise(100.0 - (100.0 / (1.0 + rs)))
-    )
-    rsi = pl.select(rsi_expr).to_series()
+    rsi_vals: list[float | None] = []
+    for i in range(n):
+        ag = avg_gain_vals[i]
+        al = avg_loss_vals[i]
+        if ag is None or al is None:
+            rsi_vals.append(None)
+        elif al == 0.0 and ag == 0.0:
+            rsi_vals.append(50.0)
+        elif al == 0.0:
+            rsi_vals.append(100.0)
+        else:
+            rs = ag / al
+            rsi_vals.append(100.0 - (100.0 / (1.0 + rs)))
 
+    rsi = pl.Series(rsi_vals, dtype=pl.Float64)
     return _from_series(rsi, prices)
 
 
@@ -223,7 +247,8 @@ def calculate_bollinger_bands(
         return empty, empty, empty
 
     middle = series.rolling_mean(window_size=period)
-    std = series.rolling_std(window_size=period)
+    # Canonical Bollinger Bands use population std (ddof=0), not sample (ddof=1)
+    std = series.rolling_std(window_size=period, ddof=0)
     upper = middle + k * std
     lower = middle - k * std
 

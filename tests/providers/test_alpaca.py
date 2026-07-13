@@ -374,7 +374,7 @@ async def test_alpaca_fatal_auth_error() -> None:
     )
 
     greeting = b'[{"T":"success","msg":"connected"}]'
-    auth_failed = b'[{"T":"error","code":406,"msg":"auth failed"}]'
+    auth_failed = b'[{"T":"error","code":401,"msg":"auth failed"}]'
     transport = MockTransport([greeting, auth_failed])
     provider.transport = transport
 
@@ -397,5 +397,7 @@ def test_alpaca_mid_session_warning() -> None:
     # Mid-session error packet
     raw_msg = [{"T": "error", "code": 405, "msg": "symbol limit exceeded"}]
 
-    with pytest.raises(ValueError, match="symbol limit exceeded"):
+    from stockodile.providers.base import FatalProviderError
+
+    with pytest.raises(FatalProviderError, match="symbol limit exceeded"):
         list(provider.normalize(raw_msg, local_ts=999))

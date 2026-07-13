@@ -62,7 +62,7 @@ def test_google_finance_helpers() -> None:
     assert unit == "percent"
 
     val, unit = parse_val_and_unit("invalid%", "Dividend")
-    assert val == 0.0
+    assert val is None
     assert unit == "percent"
 
     # Multipliers
@@ -92,8 +92,8 @@ def test_google_finance_helpers() -> None:
     assert unit == "ratio"
 
     val, unit = parse_val_and_unit("invalid_num", "P/E ratio")
-    assert val == 0.0
-    assert unit == "ratio"
+    assert val is None
+    assert unit == "unknown"
 
     val, unit = parse_val_and_unit("123", "Unknown Key")
     assert val == 123.0

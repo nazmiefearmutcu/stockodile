@@ -20,6 +20,8 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
     "prompt-toolkit>=3.0.52",
+    "beautifulsoup4>=4.12",
+    "python-dateutil>=2.9",
 ]
 
 [project.scripts]

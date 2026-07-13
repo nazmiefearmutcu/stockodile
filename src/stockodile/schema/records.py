@@ -1,4 +1,11 @@
-"""Canonical record schemas for Stockodile."""
+"""Canonical record schemas for Stockodile.
+
+Timestamp convention
+--------------------
+All ``local_ts``, ``source_ts``, and ``exchange_ts`` fields are **UTC epoch
+nanoseconds** (``int``). Use ``int(time.time_ns())`` / provider ``*_to_ns``
+helpers. Do not store seconds or milliseconds without converting.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +20,9 @@ from stockodile.schema.enums import (
     Tape,
 )
 
+# Epoch nanoseconds UTC (canonical Stockodile time unit)
+TsNs = int
+
 Level = tuple[float, float]  # (price, size); size == 0.0 means REMOVE this level
 
 
@@ -20,11 +30,11 @@ class Trade(msgspec.Struct, frozen=True, tag="trade", tag_field="channel"):
     provider: str
     symbol: str
     symbol_raw: str
-    local_ts: int
+    local_ts: TsNs
     id: str
     price: float
     size: float
-    source_ts: int | None = None
+    source_ts: TsNs | None = None
     conditions: list[str] | None = None
     tape: Tape | None = None
     venue: str | None = None

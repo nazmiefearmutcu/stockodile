@@ -128,13 +128,21 @@ class AlpacaProvider(Provider):
                 elif first.get("T") == "error":
                     err_msg = first.get("msg")
                     err_code = first.get("code")
-                    if err_code == 406 or any(
-                        w in str(err_msg).lower() for w in ("auth", "credential", "key", "secret")
+                    err_l = str(err_msg).lower()
+                    # 401/402 = auth; 406 = connection limit (not auth)
+                    if err_code in (401, 402) or any(
+                        w in err_l for w in ("auth", "credential", "key", "secret")
                     ):
                         raise FatalProviderError(
                             f"Alpaca authentication failed: {err_msg} (code {err_code})"
                         )
-                    raise RuntimeError(f"Alpaca authentication failed: {err_msg} (code {err_code})")
+                    if err_code == 406 or "connection limit" in err_l or "limit" in err_l:
+                        raise FatalProviderError(
+                            f"Alpaca connection limit exceeded: {err_msg} (code {err_code})"
+                        )
+                    raise FatalProviderError(
+                        f"Alpaca handshake error: {err_msg} (code {err_code})"
+                    )
                 else:
                     raise RuntimeError(f"Unexpected auth response: {raw.decode()}")
             else:
@@ -167,11 +175,19 @@ class AlpacaProvider(Provider):
                 if t_type == "error":
                     code = item.get("code")
                     err_msg = item.get("msg")
-                    if code == 406 or any(
-                        w in str(err_msg).lower() for w in ("auth", "credential", "key", "secret")
+                    err_l = str(err_msg).lower()
+                    if code in (401, 402) or any(
+                        w in err_l for w in ("auth", "credential", "key", "secret")
                     ):
-                        raise FatalProviderError(f"Alpaca WebSocket error: {err_msg} (code {code})")
-                    raise ValueError(f"Alpaca WebSocket error: {err_msg} (code {code})")
+                        raise FatalProviderError(
+                            f"Alpaca authentication failed: {err_msg} (code {code})"
+                        )
+                    if code == 406 or "connection limit" in err_l:
+                        raise FatalProviderError(
+                            f"Alpaca connection limit exceeded: {err_msg} (code {code})"
+                        )
+                    # Mid-session protocol errors are fatal (not DLQ noise)
+                    raise FatalProviderError(f"Alpaca WebSocket error: {err_msg} (code {code})")
 
                 elif t_type == "t":
                     tape_val = item.get("z")
@@ -200,6 +216,7 @@ class AlpacaProvider(Provider):
                     except ValueError:
                         tape = Tape.UNKNOWN
 
+                    is_sip = getattr(self, "feed", "iex") == "sip"
                     yield Quote(
                         provider=self.name,
                         symbol=item["S"],
@@ -211,7 +228,7 @@ class AlpacaProvider(Provider):
                         ask_px=float(item["ap"]),
                         ask_sz=float(item["as"]),
                         is_nbbo=False,
-                        is_consolidated=False,
+                        is_consolidated=is_sip,
                         conditions=item.get("c"),
                         tape=tape,
                     )
