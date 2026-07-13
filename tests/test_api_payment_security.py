@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -213,6 +214,65 @@ def test_two_phase_refund_on_data_failure(
     rec = api.PAYMENTS_DB[pid]
     # Should be refunded to paid (not spent) so client can retry
     assert rec["status"] == "paid"
+
+
+async def test_concurrent_double_redeem_one_wins(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two concurrent redeems of the same paid payment: exactly one 200, one 400, final spent.
+
+    Uses httpx.AsyncClient so both ASGI requests share one event loop (TestClient
+    serializes portal.call across threads and cannot exercise asyncio.Lock races).
+    """
+    import stockodile.api_server as api
+    from httpx import ASGITransport, AsyncClient
+
+    r = client.get("/api/v1/market-data", params={"symbol": "cbBTC-USDC"})
+    assert r.status_code == 402
+    pid = r.json()["payment_id"]
+    sig, _ = _sign_payment_id(pid)
+    payload = {"payment_id": pid, "tx_hash": "0xconcurrent1", "signature": sig}
+    assert client.post("/api/v1/simulate-payment", json=payload).status_code == 200
+
+    async def slow_price(symbol: str, rpc_url: str | None = None) -> dict[str, Any]:
+        # Yield so the second concurrent claim can observe redeeming/spent.
+        await asyncio.sleep(0.15)
+        return {"symbol": symbol, "price": 42.0}
+
+    monkeypatch.setattr(api, "get_onchain_price", slow_price)
+
+    headers = {"Payment-Signature": json.dumps(payload)}
+    params = {"symbol": "cbBTC-USDC"}
+
+    transport = ASGITransport(app=api.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r1, r2 = await asyncio.gather(
+            ac.get("/api/v1/market-data", params=params, headers=headers),
+            ac.get("/api/v1/market-data", params=params, headers=headers),
+        )
+
+    codes = sorted([r1.status_code, r2.status_code])
+    assert codes == [200, 400], f"expected one 200 and one 400, got {codes}"
+    assert api.PAYMENTS_DB[pid]["status"] == "spent"
+
+
+def test_simulate_payment_disabled_when_allow_simulation_false(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """I6: when simulation is disallowed, POST /simulate-payment returns 400."""
+    import stockodile.api_server as api
+
+    monkeypatch.setattr(api, "_allow_simulation", lambda: False)
+
+    r = client.get("/api/v1/market-data", params={"symbol": "ETH-USDC"})
+    assert r.status_code == 402
+    pid = r.json()["payment_id"]
+    sig, _ = _sign_payment_id(pid)
+    payload = {"payment_id": pid, "tx_hash": "0xnosim", "signature": sig}
+
+    r = client.post("/api/v1/simulate-payment", json=payload)
+    assert r.status_code == 400
+    assert "simulat" in r.json()["detail"].lower() or "disabled" in r.json()["detail"].lower()
 
 
 def test_metrics_token_enforced(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

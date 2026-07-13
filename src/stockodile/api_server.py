@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import secrets
 import sys
 import tempfile
 import threading
@@ -939,6 +940,10 @@ async def get_market_data(
             record = await PAYMENTS_DB.get_async(pid)
             if record.get("status") == "spent":
                 raise HTTPException(status_code=400, detail="Payment already spent.")
+            if record.get("status") == "redeeming":
+                raise HTTPException(
+                    status_code=400, detail="Payment is currently being redeemed."
+                )
 
             # Verify that tx_hash is not already used in any paid or spent payment record in DB
             items = await PAYMENTS_DB.items_async()
@@ -1173,57 +1178,53 @@ async def get_market_data(
         ) from e
 
     # 3. Two-phase redeem: claim under lock (paid -> redeeming) before external data fetch.
-    # On success: redeeming -> spent. On data failure: redeeming -> paid (refund) so client
-    # can retry without double-charging for a failed delivery.
-    async with db_lock:
-        record = await PAYMENTS_DB.get_async(pid)
-        if not record:
-            raise HTTPException(status_code=400, detail="Invalid or expired payment ID.")
-        status = record.get("status")
-        if status == "spent":
-            raise HTTPException(status_code=400, detail="Payment already spent.")
-        if status == "redeeming":
-            raise HTTPException(status_code=400, detail="Payment is currently being redeemed.")
-        if status != "paid":
-            raise HTTPException(status_code=400, detail="Payment not paid.")
-        # Bind payment to the symbol it was created for (stripped, case-sensitive as stored).
-        stored_symbol = (record.get("symbol") or "").strip()
-        if stored_symbol != symbol.strip():
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Payment symbol mismatch: payment bound to '{stored_symbol}', "
-                    f"requested '{symbol.strip()}'."
-                ),
-            )
-        record["status"] = "redeeming"
-        await PAYMENTS_DB.set_async(pid, record)
-
+    # On success: redeeming -> spent. On any failure (including CancelledError/BaseException):
+    # redeeming -> paid (refund) so the client can retry without losing the payment.
+    claimed = False
+    success = False
+    data: dict[str, Any] | None = None
     try:
+        async with db_lock:
+            record = await PAYMENTS_DB.get_async(pid)
+            if not record:
+                raise HTTPException(status_code=400, detail="Invalid or expired payment ID.")
+            status = record.get("status")
+            if status == "spent":
+                raise HTTPException(status_code=400, detail="Payment already spent.")
+            if status == "redeeming":
+                raise HTTPException(
+                    status_code=400, detail="Payment is currently being redeemed."
+                )
+            if status != "paid":
+                raise HTTPException(status_code=400, detail="Payment not paid.")
+            # Bind payment to the symbol it was created for (stripped, case-sensitive as stored).
+            stored_symbol = (record.get("symbol") or "").strip()
+            if stored_symbol != symbol.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Payment symbol mismatch: payment bound to '{stored_symbol}', "
+                        f"requested '{symbol.strip()}'."
+                    ),
+                )
+            record["status"] = "redeeming"
+            await PAYMENTS_DB.set_async(pid, record)
+            claimed = True
+
         active_rpc = get_w3().provider.endpoint_uri
         data = await get_onchain_price(symbol, rpc_url=active_rpc)
         if "error" in data:
+            raise HTTPException(status_code=500, detail=data["error"])
+        success = True
+    finally:
+        # Always settle redeeming: spent on success, paid (refund) otherwise.
+        # Handles CancelledError and other BaseExceptions that bypass bare `except Exception`.
+        if claimed:
             async with db_lock:
                 record = await PAYMENTS_DB.get_async(pid)
                 if record and record.get("status") == "redeeming":
-                    record["status"] = "paid"
+                    record["status"] = "spent" if success else "paid"
                     await PAYMENTS_DB.set_async(pid, record)
-            raise HTTPException(status_code=500, detail=data["error"])
-    except HTTPException:
-        raise
-    except Exception:
-        async with db_lock:
-            record = await PAYMENTS_DB.get_async(pid)
-            if record and record.get("status") == "redeeming":
-                record["status"] = "paid"
-                await PAYMENTS_DB.set_async(pid, record)
-        raise
-
-    async with db_lock:
-        record = await PAYMENTS_DB.get_async(pid)
-        if record:
-            record["status"] = "spent"
-            await PAYMENTS_DB.set_async(pid, record)
 
     # Set x402 success headers
     response.headers["Payment-Response"] = Web3.to_json(
@@ -1337,7 +1338,9 @@ async def get_all_payments(
     admin_token = os.getenv("ADMIN_TOKEN") or ""
     if not admin_token:
         raise HTTPException(status_code=404, detail="Not Found")
-    if not x_admin_token or x_admin_token != admin_token:
+    if not x_admin_token or not secrets.compare_digest(
+        x_admin_token.encode("utf-8"), admin_token.encode("utf-8")
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
     async with db_lock:
         return await PAYMENTS_DB.items_async()
@@ -1498,8 +1501,13 @@ async def metrics(
 
     metrics_token = os.getenv("METRICS_TOKEN") or ""
     if metrics_token:
-        bearer_ok = bool(authorization) and authorization == f"Bearer {metrics_token}"
-        header_ok = bool(x_metrics_token) and x_metrics_token == metrics_token
+        expected_bearer = f"Bearer {metrics_token}"
+        bearer_ok = bool(authorization) and secrets.compare_digest(
+            authorization.encode("utf-8"), expected_bearer.encode("utf-8")
+        )
+        header_ok = bool(x_metrics_token) and secrets.compare_digest(
+            x_metrics_token.encode("utf-8"), metrics_token.encode("utf-8")
+        )
         if not (bearer_ok or header_ok):
             raise HTTPException(status_code=401, detail="Unauthorized")
 
