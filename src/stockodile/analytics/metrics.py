@@ -40,8 +40,9 @@ def calculate_beta(
     if len(a_valid) < 2:
         return float("nan")
 
-    m_var = np.var(m_valid, ddof=1)
-    if m_var == 0.0:
+    m_var = float(np.var(m_valid, ddof=1))
+    # Near-zero market variance → undefined / unstable beta
+    if m_var <= max(1e-18, float(np.finfo(float).eps) * 10.0):
         return float("nan")
 
     cov_matrix = np.cov(a_valid, m_valid, ddof=1)
@@ -69,17 +70,21 @@ def calculate_realized_volatility(
     else:
         arr = np.asarray(returns, dtype=float)
 
+    if not math.isfinite(annualization_factor) or annualization_factor < 0:
+        raise ValueError("annualization_factor must be finite and >= 0")
+
     valid_arr = arr[np.isfinite(arr)]
 
     if len(valid_arr) == 0:
         return float("nan")
 
-    if method == "standard":
+    method_norm = method.lower()
+    if method_norm == "standard":
         if len(valid_arr) < 2:
             return float("nan")
         std = np.std(valid_arr, ddof=1)
         return float(std * math.sqrt(annualization_factor))
-    elif method == "sum_of_squares":
+    elif method_norm == "sum_of_squares":
         sum_sq = np.sum(valid_arr**2)
         n = len(valid_arr)
         return float(math.sqrt(sum_sq * (annualization_factor / n)))

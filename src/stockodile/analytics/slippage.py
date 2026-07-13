@@ -52,8 +52,12 @@ def estimate_slippage(
             "SELECT bids, asks FROM book_snapshot WHERE symbol = ? ORDER BY local_ts DESC LIMIT 1",
             [symbol]
         ).pl()
-    except Exception:
-        df = pl.DataFrame()
+    except ValueError:
+        raise
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to load book snapshots for symbol '{symbol}': {e}"
+        ) from e
 
     if df.is_empty():
         raise ValueError(f"No book snapshots found for symbol '{symbol}'.")
@@ -62,10 +66,16 @@ def estimate_slippage(
     bids = _coerce_levels_from_row(row.get("bids"))
     asks = _coerce_levels_from_row(row.get("asks"))
 
-    levels = bids if side_lower == "sell" else asks
-
+    raw_levels = bids if side_lower == "sell" else asks
+    # Drop removed/empty levels; enforce price-time priority walk order
+    levels = [(p, a) for p, a in raw_levels if a is not None and a > 0 and p is not None and p > 0]
     if not levels:
         raise ValueError(f"Order book for symbol '{symbol}' has no levels on the {side} side.")
+
+    if side_lower == "buy":
+        levels = sorted(levels, key=lambda x: x[0])  # asks: best (low) first
+    else:
+        levels = sorted(levels, key=lambda x: x[0], reverse=True)  # bids: best (high) first
 
     best_price = levels[0][0]
 

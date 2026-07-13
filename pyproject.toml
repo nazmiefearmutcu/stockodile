@@ -22,6 +22,7 @@ dependencies = [
     "prompt-toolkit>=3.0.52",
     "beautifulsoup4>=4.12",
     "python-dateutil>=2.9",
+    "numpy>=1.26",
 ]
 
 [project.scripts]
