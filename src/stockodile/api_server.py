@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -516,14 +517,22 @@ async def get_transaction_with_failover(w3: AsyncWeb3, tx_hash: str) -> Any:
                 ) from e
 
 
-PAYMENTS_FILE = "/Users/nazmi/Stockodile/.payments_db.json"
-if "pytest" in sys.modules:
-    PAYMENTS_FILE = "/Users/nazmi/Stockodile/.payments_db_test.json"
+def _default_payments_file() -> str:
+    """Return the default on-disk path for the payments database."""
+    base = os.getenv("STOCKODILE_HOME") or os.path.join(os.path.expanduser("~"), ".stockodile")
+    return os.path.join(base, "payments_db.json")
+
+
+# Under pytest (without PAYMENTS_FILE), isolate to a temp file and only wipe that test path.
+if "pytest" in sys.modules and not os.getenv("PAYMENTS_FILE"):
+    PAYMENTS_FILE = os.path.join(tempfile.gettempdir(), "stockodile_payments_test.json")
     try:
         if os.path.exists(PAYMENTS_FILE):
             os.remove(PAYMENTS_FILE)
     except Exception:
         pass
+else:
+    PAYMENTS_FILE = _default_payments_file()
 
 
 # Persistent DB path helper
@@ -558,19 +567,24 @@ def _load_db_file() -> dict[str, dict[str, Any]]:
 
 
 def _save_db_file(data: dict[str, dict[str, Any]]) -> None:
+    """Atomically persist payments DB via write-to-tmp then os.replace."""
     payments_file = get_payments_file()
     try:
-        os.makedirs(os.path.dirname(payments_file), exist_ok=True)
+        parent = os.path.dirname(payments_file)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         lock_file = payments_file + ".lock"
+        tmp_file = payments_file + ".tmp"
         with open(lock_file, "a") as lf:
             try:
                 fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
             except (OSError, AttributeError):
                 pass
-            with open(payments_file, "w") as f:
+            with open(tmp_file, "w") as f:
                 json.dump(data, f)
                 f.flush()
                 os.fsync(f.fileno())
+            os.replace(tmp_file, payments_file)
     except Exception as e:
         log.error(f"Error saving PAYMENTS_DB file: {e}")
 
@@ -782,6 +796,19 @@ RECIPIENT_WALLET = os.getenv("RECIPIENT_WALLET", "0x70997970C51812dc3A010C7d01b5
 PRICE_USDC = os.getenv("PRICE_USDC", "0.001")  # $0.001 USDC per request
 
 
+def _client_ip(request: Request) -> str:
+    trust_forwarded = os.getenv("TRUST_FORWARDED_FOR", "false").lower() == "true"
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded and trust_forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client is not None else "unknown"
+
+
+def _allow_simulation() -> bool:
+    """Simulation is off by default; enable via ALLOW_SIMULATION=true or under pytest."""
+    return os.getenv("ALLOW_SIMULATION", "false") == "true" or "pytest" in sys.modules
+
+
 class PaymentSignature(BaseModel):
     payment_id: str
     tx_hash: str
@@ -808,14 +835,7 @@ async def get_market_data(
     """Get real-time Base DEX market data. Gated behind x402 micropayments."""
     global METRICS_MARKET_DATA_REQUESTS
     METRICS_MARKET_DATA_REQUESTS += 1
-    client_ip = "unknown"
-    if request is not None:
-        trust_forwarded = os.getenv("TRUST_FORWARDED_FOR", "false").lower() == "true"
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded and trust_forwarded:
-            client_ip = forwarded.split(",")[0].strip()
-        else:
-            client_ip = request.client.host if request.client is not None else "unknown"
+    client_ip = _client_ip(request)
     if rate_limiter.check_rate_limit(client_ip):
         raise HTTPException(status_code=429, detail="Too Many Requests")
 
@@ -1152,13 +1172,53 @@ async def get_market_data(
             detail="Failed verifying payment signature: Invalid payment or signature format.",
         ) from e
 
-    # 3. Retrieve and return live Base DEX pool data
-    active_rpc = get_w3().provider.endpoint_uri
-    data = await get_onchain_price(symbol, rpc_url=active_rpc)
-    if "error" in data:
-        raise HTTPException(status_code=500, detail=data["error"])
+    # 3. Two-phase redeem: claim under lock (paid -> redeeming) before external data fetch.
+    # On success: redeeming -> spent. On data failure: redeeming -> paid (refund) so client
+    # can retry without double-charging for a failed delivery.
+    async with db_lock:
+        record = await PAYMENTS_DB.get_async(pid)
+        if not record:
+            raise HTTPException(status_code=400, detail="Invalid or expired payment ID.")
+        status = record.get("status")
+        if status == "spent":
+            raise HTTPException(status_code=400, detail="Payment already spent.")
+        if status == "redeeming":
+            raise HTTPException(status_code=400, detail="Payment is currently being redeemed.")
+        if status != "paid":
+            raise HTTPException(status_code=400, detail="Payment not paid.")
+        # Bind payment to the symbol it was created for (stripped, case-sensitive as stored).
+        stored_symbol = (record.get("symbol") or "").strip()
+        if stored_symbol != symbol.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Payment symbol mismatch: payment bound to '{stored_symbol}', "
+                    f"requested '{symbol.strip()}'."
+                ),
+            )
+        record["status"] = "redeeming"
+        await PAYMENTS_DB.set_async(pid, record)
 
-    # Mark the payment as spent to prevent reuse of payment_id
+    try:
+        active_rpc = get_w3().provider.endpoint_uri
+        data = await get_onchain_price(symbol, rpc_url=active_rpc)
+        if "error" in data:
+            async with db_lock:
+                record = await PAYMENTS_DB.get_async(pid)
+                if record and record.get("status") == "redeeming":
+                    record["status"] = "paid"
+                    await PAYMENTS_DB.set_async(pid, record)
+            raise HTTPException(status_code=500, detail=data["error"])
+    except HTTPException:
+        raise
+    except Exception:
+        async with db_lock:
+            record = await PAYMENTS_DB.get_async(pid)
+            if record and record.get("status") == "redeeming":
+                record["status"] = "paid"
+                await PAYMENTS_DB.set_async(pid, record)
+        raise
+
     async with db_lock:
         record = await PAYMENTS_DB.get_async(pid)
         if record:
@@ -1178,19 +1238,13 @@ async def simulate_payment(payload: PaymentSignature, request: Request) -> dict[
     """Helper endpoint to mark a payment_id as paid and generate a mock signature.
 
     This allows testing clients to easily simulate the on-chain transfer.
+    Only pending -> paid is allowed; spent/paid records are rejected.
     """
-    client_ip = "unknown"
-    if request is not None:
-        trust_forwarded = os.getenv("TRUST_FORWARDED_FOR", "false").lower() == "true"
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded and trust_forwarded:
-            client_ip = forwarded.split(",")[0].strip()
-        else:
-            client_ip = request.client.host if request.client is not None else "unknown"
+    client_ip = _client_ip(request)
     if rate_limiter.check_rate_limit(client_ip):
         raise HTTPException(status_code=429, detail="Too Many Requests")
 
-    if not (os.getenv("ALLOW_SIMULATION", "true") == "true" or "pytest" in sys.modules):
+    if not _allow_simulation():
         raise HTTPException(status_code=400, detail="Simulation mode is disabled.")
 
     pid = payload.payment_id
@@ -1246,6 +1300,18 @@ async def simulate_payment(payload: PaymentSignature, request: Request) -> dict[
             )
 
         record = await PAYMENTS_DB.get_async(pid)
+        current_status = record.get("status")
+        if current_status in ("spent", "paid"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Payment already {current_status}; only pending payments can be simulated.",
+            )
+        if current_status != "pending":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Payment status '{current_status}' cannot be simulated; expected pending.",
+            )
+
         record["status"] = "paid"
         record["tx_hash"] = tx_hash
         record["sender"] = signer_address
@@ -1261,8 +1327,18 @@ async def simulate_payment(payload: PaymentSignature, request: Request) -> dict[
 
 
 @app.get("/api/v1/admin/payments", include_in_schema=False)
-async def get_all_payments() -> dict[str, Any]:
-    """Return all simulated payments."""
+async def get_all_payments(
+    x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
+) -> dict[str, Any]:
+    """Return all payment records. Requires X-Admin-Token matching ADMIN_TOKEN env.
+
+    If ADMIN_TOKEN is unset/empty the endpoint is hidden (404). Wrong/missing token -> 401.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN") or ""
+    if not admin_token:
+        raise HTTPException(status_code=404, detail="Not Found")
+    if not x_admin_token or x_admin_token != admin_token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     async with db_lock:
         return await PAYMENTS_DB.items_async()
 
@@ -1335,8 +1411,14 @@ def _get_api_catalog() -> Catalog:
 
 
 @app.post("/api/v1/simulate-price-impact")
-async def simulate_price_impact(payload: PriceImpactPayload) -> list[dict[str, Any]]:
+async def simulate_price_impact(
+    payload: PriceImpactPayload, request: Request
+) -> list[dict[str, Any]]:
     """Simulate execution slippage and price impact for a given order size."""
+    client_ip = _client_ip(request)
+    if rate_limiter.check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
     size = payload.size if payload.size is not None else payload.amount
     if size is None or size <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than zero.")
@@ -1399,9 +1481,28 @@ async def simulate_price_impact(payload: PriceImpactPayload) -> list[dict[str, A
 
 
 @app.get("/metrics")
-async def metrics() -> Response:
-    """Prometheus exposition format health and usage metrics endpoint."""
+async def metrics(
+    request: Request,
+    authorization: str | None = Header(None),
+    x_metrics_token: str | None = Header(None, alias="X-Metrics-Token"),
+) -> Response:
+    """Prometheus exposition format health and usage metrics endpoint.
+
+    If METRICS_TOKEN is set, require Authorization: Bearer <token> or X-Metrics-Token.
+    If unset, allow (local/dev) but always apply the shared rate limiter.
+    """
     global METRICS_METRICS_REQUESTS
+    client_ip = _client_ip(request)
+    if rate_limiter.check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+    metrics_token = os.getenv("METRICS_TOKEN") or ""
+    if metrics_token:
+        bearer_ok = bool(authorization) and authorization == f"Bearer {metrics_token}"
+        header_ok = bool(x_metrics_token) and x_metrics_token == metrics_token
+        if not (bearer_ok or header_ok):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
     METRICS_METRICS_REQUESTS += 1
 
     import resource

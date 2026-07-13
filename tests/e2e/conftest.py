@@ -52,6 +52,8 @@ def api_server(mock_rpc: tuple[str, int], tmp_path: Path) -> Generator[str, None
         env["BASE_RPC_URL"] = rpc_url
         env["PYTHONPATH"] = os.path.abspath("src") + os.pathsep + os.environ.get("PYTHONPATH", "")
         env["PAYMENTS_FILE"] = str(payments_file)
+        # API server runs as a subprocess (no pytest in sys.modules); enable simulation for e2e.
+        env["ALLOW_SIMULATION"] = "true"
 
         proc = subprocess.Popen(
             [
