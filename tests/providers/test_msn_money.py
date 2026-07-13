@@ -504,3 +504,50 @@ async def test_msn_money_run_not_implemented() -> None:
     )
     with pytest.raises(NotImplementedError):
         await provider.run()
+
+
+def test_msn_money_apikey_defaults_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default apikey must not be a hardcoded production-looking secret."""
+    monkeypatch.delenv("MSN_MONEY_APIKEY", raising=False)
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+    assert provider.apikey == ""
+    # Guard against reintroducing a shipped default key in source.
+    import inspect
+
+    src = inspect.getsource(MsnMoneyProvider.__init__)
+    assert "0QfOX3Vn" not in src
+    assert 'apikey: str = "' not in src
+
+
+def test_msn_money_apikey_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MSN_MONEY_APIKEY", "env-test-key")
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+    )
+    assert provider.apikey == "env-test-key"
+
+
+def test_msn_money_apikey_explicit_overrides_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MSN_MONEY_APIKEY", "env-test-key")
+    registry = InstrumentRegistry()
+    sink = MemorySink()
+    provider = MsnMoneyProvider(
+        symbols=["AAPL"],
+        channels=["bar"],
+        out=sink,
+        registry=registry,
+        apikey="explicit-key",
+    )
+    assert provider.apikey == "explicit-key"

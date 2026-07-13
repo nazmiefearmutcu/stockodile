@@ -28,14 +28,23 @@ FACTORIES = {
 }
 
 
+def _default_ipc_file() -> str:
+    """Return the default on-disk path for custom pools IPC state."""
+    base = os.getenv("STOCKODILE_HOME") or os.path.join(os.path.expanduser("~"), ".stockodile")
+    return os.path.join(base, "custom_pools_ipc.json")
+
+
 def _get_ipc_file() -> str:
-    return os.getenv("CUSTOM_POOLS_IPC_FILE", "/Users/nazmi/Stockodile/.custom_pools_ipc.json")
+    return os.getenv("CUSTOM_POOLS_IPC_FILE") or _default_ipc_file()
 
 
 def _write_ipc_to_file(name: str, data_dict: dict[str, Any]) -> None:
     try:
         data = {}
         ipc_file = _get_ipc_file()
+        parent = os.path.dirname(ipc_file)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         lock_file = ipc_file + ".lock"
         with open(lock_file, "a+") as lf:
             try:

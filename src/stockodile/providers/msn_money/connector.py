@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 import time
 from collections.abc import AsyncIterator, Iterable
@@ -62,11 +63,12 @@ class MsnMoneyProvider(Provider):
         channels: list[str],
         out: Sink,
         registry: InstrumentRegistry,
-        apikey: str = "0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM",
+        apikey: str | None = None,
         ocid: str = "finance-utils-peregrine",
     ) -> None:
         super().__init__(symbols, channels, out, registry)
-        self.apikey = apikey
+        # Prefer explicit arg; otherwise require MSN_MONEY_APIKEY (never ship a default key).
+        self.apikey = apikey if apikey is not None else os.environ.get("MSN_MONEY_APIKEY", "")
         self.ocid = ocid
         self.session: aiohttp.ClientSession | None = None
 
