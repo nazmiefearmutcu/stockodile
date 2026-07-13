@@ -77,17 +77,20 @@ uv sync
 ### Running the CLI
 
 ```bash
-# Run collect to stream live WS feeds
-uv run stockodile collect --symbols AAPL,MSFT --channels trade,quote --provider alpaca
+# Run collect to stream live WS feeds (repeat --symbols/--channels for multiple)
+uv run stockodile collect --provider alpaca --symbols AAPL --symbols MSFT --channels trade --channels quote
 
 # Execute DuckDB SQL queries against the catalog
-uv run stockodile query "SELECT date, open, close FROM bar WHERE symbol = 'AAPL' ORDER BY date"
+uv run stockodile query "SELECT * FROM trade WHERE symbol = 'alpaca:AAPL' LIMIT 10"
 
 # Export normalized datasets to CSV or JSON
-uv run stockodile export --channel bar --symbol AAPL --format csv --output aapl.csv
+uv run stockodile export --channel trade --symbols alpaca:AAPL --fmt csv --dest aapl.csv
 
 # Resample ticks to a 5-minute interval
-uv run stockodile resample --symbol AAPL --interval 5m
+uv run stockodile resample --symbol alpaca:AAPL --interval 5m
+
+# Calculate technical indicators on resampled OHLCV bars
+uv run stockodile indicators --symbol alpaca:AAPL --indicator sma --period 14 --interval 1d
 ```
 
 ---

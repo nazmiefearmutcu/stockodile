@@ -32,10 +32,16 @@ def export(
     to: int,
     fmt: str,
     dest: Path | str,
+    limit: int | None = None,
 ) -> None:
-    """Export rows for ``(channel, symbols, [frm, to])`` to a file in ``fmt`` format."""
+    """Export rows for ``(channel, symbols, [frm, to])`` to a file in ``fmt`` format.
+
+    If ``limit`` is set, only the first ``limit`` rows (after concat/sort) are written.
+    """
     if fmt not in _VALID_FMTS:
         raise ValueError(f"Unsupported fmt={fmt!r}. Must be one of: {sorted(_VALID_FMTS)}")
+    if limit is not None and limit < 0:
+        raise ValueError(f"limit must be >= 0, got {limit!r}")
 
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +60,9 @@ def export(
             result = frames[0]
     else:
         result = pl.DataFrame()
+
+    if limit is not None:
+        result = result.head(limit)
 
     _write(result, fmt, dest)
 

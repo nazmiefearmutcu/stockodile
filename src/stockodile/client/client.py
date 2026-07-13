@@ -102,9 +102,10 @@ class StockodileClient:
         to: int,
         fmt: ExportFmt,
         dest: Path | str,
+        limit: int | None = None,
     ) -> None:
         """Write rows for a channel x symbols x time range to a file."""
-        _export(self._catalog, channel, symbols, frm, to, fmt, Path(dest))
+        _export(self._catalog, channel, symbols, frm, to, fmt, Path(dest), limit=limit)
 
     def resample(
         self,

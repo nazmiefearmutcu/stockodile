@@ -98,6 +98,40 @@ async def test_cli_export_csv_creates_file(tmp_path: pathlib.Path) -> None:
     assert dest.stat().st_size > 0
 
 
+async def test_cli_export_limit_truncates_rows(tmp_path: pathlib.Path) -> None:
+    """``export --limit N`` writes at most N data rows."""
+    await _write_fixtures(tmp_path)
+    dest = tmp_path / "out" / "limited.csv"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "--channel",
+            "trade",
+            "--symbols",
+            "alpaca:AAPL",
+            "--from",
+            str(_BASE_TS - 1),
+            "--to",
+            str(_BASE_TS + 1),
+            "--fmt",
+            "csv",
+            "--dest",
+            str(dest),
+            "--limit",
+            "1",
+            "--data-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, f"stdout:\n{result.output}"
+    assert dest.exists()
+    lines = dest.read_text().strip().splitlines()
+    # header + 1 data row (fixtures write 3 trades)
+    assert len(lines) == 2, f"expected header + 1 row, got {len(lines)} lines:\n{dest.read_text()}"
+
+
 async def test_cli_replay_exits_zero(tmp_path: pathlib.Path) -> None:
     """``replay`` lists records from the fixture data lake, exit code 0."""
     await _write_fixtures(tmp_path)

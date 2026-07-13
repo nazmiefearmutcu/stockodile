@@ -2,13 +2,14 @@
 
 Commands
 --------
-query     -- Execute DuckDB SQL against the data lake; print result table.
-catalog   -- List all channels present in the data lake with row counts.
-export    -- Export a channel x symbols x time range to a file.
-replay    -- Stream canonical Records from the data lake, printed to stdout.
-collect   -- Run live connectors and write data to the Parquet lake.
-resample  -- Resample trade records to OHLCV bars.
-shell     -- Start an interactive Stockodile shell.
+query      -- Execute DuckDB SQL against the data lake; print result table.
+catalog    -- List all channels present in the data lake with row counts.
+export     -- Export a channel x symbols x time range to a file.
+replay     -- Stream canonical Records from the data lake, printed to stdout.
+collect    -- Run live connectors and write data to the Parquet lake.
+resample   -- Resample trade records to OHLCV bars.
+indicators -- Calculate technical analysis indicators on OHLCV bars.
+shell      -- Start an interactive Stockodile shell.
 """
 
 from __future__ import annotations
@@ -1250,7 +1251,15 @@ def export(
 
     client = StockodileClient(data_dir=data_dir)
     try:
-        client.export(channel, symbols, frm, to, fmt=fmt, dest=dest)  # type: ignore[arg-type]
+        client.export(
+            channel,
+            symbols,
+            frm,  # type: ignore[arg-type]
+            to,
+            fmt=fmt,  # type: ignore[arg-type]
+            dest=dest,
+            limit=limit,
+        )
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1) from e
@@ -1570,6 +1579,13 @@ def indicators(
         str,
         typer.Option("--interval", help="Resampling interval (e.g. 1m, 1h, 1d)."),
     ] = "1d",
+    fill_empty: Annotated[
+        bool,
+        typer.Option(
+            "--fill-empty",
+            help="Fill empty periods in the resampled grid (can explode wide date ranges).",
+        ),
+    ] = False,
     data_dir: _DataDirOpt = Path("data"),
 ) -> None:
     """Calculate technical analysis indicators (SMA, EMA, RSI, MACD, BB) using Polars."""
@@ -1611,7 +1627,7 @@ def indicators(
 
     client = StockodileClient(data_dir=data_dir)
     try:
-        df = client.resample(symbol, frm, to, interval, fill_empty=True)
+        df = client.resample(symbol, frm, to, interval, fill_empty=fill_empty)
         if len(df) == 0:
             typer.echo("No data found for the given symbol and time range.")
             return
