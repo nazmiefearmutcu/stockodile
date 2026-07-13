@@ -473,22 +473,24 @@ async def test_msn_money_response_error_handling() -> None:
         apikey="test-key",
     )
 
-    # 1. Non-200 suggest response
+    # 1. Non-200 suggest response → hard fail (no silent wrong SecId)
     mock_session = MagicMock()
     mock_resp = MagicMock()
     mock_resp.status = 404
     mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
     mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
     provider.session = mock_session
-    sec_id = await provider._resolve_sec_id("AAPL")
-    assert sec_id == "aapl"
+    with pytest.raises(ValueError, match="Could not resolve"):
+        await provider._resolve_sec_id("AAPL")
 
-    # 2. Chart JSON returns list with None [None]
+    # 2. Chart JSON returns list with None [None] — resolve succeeds, chart skips cleanly
     def mock_get(url: str, *args: Any, **kwargs: Any) -> MagicMock:
         resp = MagicMock()
         resp.status = 200
         if "Query" in url:
-            resp.json = AsyncMock(return_value={"data": {"stocks": []}})
+            resp.json = AsyncMock(
+                return_value={"data": {"stocks": ['{"RT00S": "AAPL", "SecId": "12345"}']}}
+            )
         elif "Charts" in url:
             resp.json = AsyncMock(return_value=[None])
         resp.__aenter__ = AsyncMock(return_value=resp)

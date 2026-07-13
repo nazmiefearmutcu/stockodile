@@ -174,40 +174,52 @@ class MsnMoneyProvider(Provider):
                             volumes = series.get("volumes", [])
                             timestamps = series.get("timeStamps", [])
 
-                            # Compute interval dynamically from first two timestamps
-                            computed_interval = None
-                            if len(timestamps) >= 2:
+                            # Prefer chart type for interval (weekend gaps break first-pair heuristics)
+                            if chart_type in ("5D", "1M") or chart_type.endswith("D"):
+                                computed_interval = "15m" if chart_type == "5D" else "1h"
+                            elif "Y" in chart_type or chart_type in ("All", "5Y", "1Y"):
+                                computed_interval = "1d"
+                            else:
+                                computed_interval = None
+                            if computed_interval is None and len(timestamps) >= 2:
                                 try:
-                                    ts0 = timestamps[0].replace("Z", "+00:00")
-                                    ts1 = timestamps[1].replace("Z", "+00:00")
-                                    dt0 = datetime.fromisoformat(ts0)
-                                    dt1 = datetime.fromisoformat(ts1)
-                                    delta_sec = abs((dt1 - dt0).total_seconds())
-
-                                    if delta_sec <= 90:
-                                        computed_interval = "1m"
-                                    elif delta_sec <= 350:
-                                        computed_interval = "5m"
-                                    elif delta_sec <= 1000:
-                                        computed_interval = "15m"
-                                    elif delta_sec <= 2000:
-                                        computed_interval = "30m"
-                                    elif delta_sec <= 4000:
-                                        computed_interval = "1h"
-                                    elif delta_sec <= 100000:
-                                        computed_interval = "1d"
-                                    elif delta_sec <= 7 * 86400 + 10000:
-                                        computed_interval = "1w"
-                                    else:
-                                        computed_interval = "1mo"
+                                    deltas: list[float] = []
+                                    for i in range(1, min(len(timestamps), 12)):
+                                        ts0 = timestamps[i - 1].replace("Z", "+00:00")
+                                        ts1 = timestamps[i].replace("Z", "+00:00")
+                                        delta_sec = abs(
+                                            (
+                                                datetime.fromisoformat(ts1)
+                                                - datetime.fromisoformat(ts0)
+                                            ).total_seconds()
+                                        )
+                                        # Ignore weekend/holiday gaps when classifying daily bars
+                                        if delta_sec <= 4.5 * 86400:
+                                            deltas.append(delta_sec)
+                                    if deltas:
+                                        deltas.sort()
+                                        med = deltas[len(deltas) // 2]
+                                        if med <= 90:
+                                            computed_interval = "1m"
+                                        elif med <= 350:
+                                            computed_interval = "5m"
+                                        elif med <= 1000:
+                                            computed_interval = "15m"
+                                        elif med <= 2000:
+                                            computed_interval = "30m"
+                                        elif med <= 4000:
+                                            computed_interval = "1h"
+                                        elif med <= 2.5 * 86400:
+                                            computed_interval = "1d"
+                                        elif med <= 8 * 86400:
+                                            computed_interval = "1w"
+                                        else:
+                                            computed_interval = "1mo"
                                 except Exception:
                                     pass
 
                             if computed_interval is None:
-                                if "Y" in chart_type or chart_type == "All":
-                                    computed_interval = "1d"
-                                else:
-                                    computed_interval = "15m"
+                                computed_interval = "1d"
 
                             n = len(timestamps)
                             for idx in range(n):
@@ -340,27 +352,29 @@ class MsnMoneyProvider(Provider):
                 if resp.status == 200:
                     data = await resp.json()
                     stocks = data.get("data", {}).get("stocks", [])
+                    exact: str | None = None
                     for stock_str in stocks:
                         try:
                             stock_data = json.loads(stock_str)
                             rt00s = stock_data.get("RT00S", "")
-                            is_match = (
-                                normalize_ticker(rt00s) == norm_orig
-                                or normalize_ticker(rt00s) == norm_query
-                            )
-                            if is_match:
+                            # Prefer exact full-symbol match only (avoid BRK vs BRK.B)
+                            if normalize_ticker(rt00s) == norm_orig:
                                 return str(stock_data.get("SecId"))
+                            if exact is None and normalize_ticker(rt00s) == norm_query:
+                                exact = str(stock_data.get("SecId"))
                         except Exception:
                             continue
-                    if stocks:
-                        try:
-                            return str(json.loads(stocks[0]).get("SecId"))
-                        except Exception:
-                            pass
+                    if exact is not None and norm_orig == norm_query:
+                        return exact
+                    log.warning(
+                        "MSN Money: no exact SecId match for %r among %d suggestions",
+                        symbol,
+                        len(stocks),
+                    )
         except Exception as e:
             log.debug("Error resolving ticker symbol suggestions: %s", e)
 
-        return symbol.lower()
+        raise ValueError(f"Could not resolve MSN Money SecId for symbol {symbol!r}")
 
     async def close(self) -> None:
         if self.session is not None:
