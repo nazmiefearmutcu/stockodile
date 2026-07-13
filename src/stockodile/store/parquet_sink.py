@@ -18,6 +18,9 @@ Row group size: 250,000 rows.
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -29,6 +32,22 @@ import polars as pl
 from stockodile.schema.records import Record
 from stockodile.sink.base import Sink
 from stockodile.store.rows import _date_from_ns, _symbol_bucket, to_row
+
+log = logging.getLogger(__name__)
+
+# Hive partition path segments (provider, channel) must be single path components.
+_HIVE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _is_safe_hive_segment(value: str) -> bool:
+    """Return True if ``value`` is a safe single hive path segment.
+
+    Rejects empty values, ``.`` / ``..``, null bytes, and any character outside
+    the allowlist ``[A-Za-z0-9._-]`` (which also excludes ``/`` and ``\\``).
+    """
+    if not value or value in (".", "..") or "\x00" in value:
+        return False
+    return _HIVE_SEGMENT_RE.fullmatch(value) is not None
 
 # ---------------------------------------------------------------------------
 # Polars schema definitions per channel
@@ -310,31 +329,72 @@ class ParquetSink(Sink):
     # ------------------------------------------------------------------
 
     async def _flush_channel(self, channel: str) -> None:
-        """Write a channel's buffer to one or more Parquet files and clear it."""
+        """Write a channel's buffer to one or more Parquet files.
+
+        Records are removed from the buffer only after a successful write.
+        On write failure, failed groups are re-queued and the error is re-raised.
+        """
         records = self._buffers.pop(channel, [])
         if not records:
             return
 
-        # Group records by (exchange, date, bucket) — each group → one file
+        if not _is_safe_hive_segment(channel):
+            log.error(
+                "Rejecting %d record(s): unsafe channel hive segment %r",
+                len(records),
+                channel,
+            )
+            return
+
+        # Group records by (provider, date, bucket) — each group → one file.
+        # Skip records whose free-form provider is not a safe path segment.
         groups: defaultdict[tuple[str, str, int], list[Record]] = defaultdict(list)
         for record in records:
-            key = (record.provider, _date_from_ns(record.local_ts), _symbol_bucket(record.symbol))
+            provider = record.provider
+            if not _is_safe_hive_segment(provider):
+                log.warning(
+                    "Skipping record: unsafe provider hive segment %r (channel=%s symbol=%s)",
+                    provider,
+                    channel,
+                    getattr(record, "symbol", "?"),
+                )
+                continue
+            key = (provider, _date_from_ns(record.local_ts), _symbol_bucket(record.symbol))
             groups[key].append(record)
 
-        tasks = []
-        for (exchange, date, bucket), group_records in groups.items():
-            tasks.append(
-                asyncio.get_event_loop().run_in_executor(
-                    None,
-                    self._write_parquet_sync,
-                    channel,
-                    exchange,
-                    date,
-                    bucket,
-                    group_records,
-                )
+        if not groups:
+            return
+
+        loop = asyncio.get_running_loop()
+        group_items = list(groups.items())
+        tasks = [
+            loop.run_in_executor(
+                None,
+                self._write_parquet_sync,
+                channel,
+                provider,
+                date,
+                bucket,
+                group_records,
             )
-        await asyncio.gather(*tasks)
+            for (provider, date, bucket), group_records in group_items
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        failed_records: list[Record] = []
+        first_error: BaseException | None = None
+        for (_, group_records), result in zip(group_items, results, strict=True):
+            if isinstance(result, BaseException):
+                failed_records.extend(group_records)
+                if first_error is None:
+                    first_error = result
+
+        if failed_records:
+            # Prepend so re-queued rows sit ahead of any concurrent put() arrivals.
+            self._buffers[channel][0:0] = failed_records
+            assert first_error is not None
+            raise first_error
 
     def _write_parquet_sync(
         self,
@@ -344,7 +404,19 @@ class ParquetSink(Sink):
         bucket: int,
         records: list[Record],
     ) -> None:
-        """Synchronous Parquet write (runs in executor to avoid blocking the loop)."""
+        """Synchronous Parquet write (runs in executor to avoid blocking the loop).
+
+        Writes to ``part-{uuid}.parquet.tmp`` then atomically ``os.replace``s to
+        the final ``part-{uuid}.parquet`` path so readers never see partial files.
+        """
+        if not _is_safe_hive_segment(channel):
+            raise ValueError(f"unsafe channel hive segment: {channel!r}")
+        if not _is_safe_hive_segment(exchange):
+            raise ValueError(f"unsafe provider hive segment: {exchange!r}")
+        # date is derived as YYYY-MM-DD; still guard free-form path injection
+        if not _is_safe_hive_segment(date):
+            raise ValueError(f"unsafe date hive segment: {date!r}")
+
         rows = [to_row(r) for r in records]
 
         # Build output path
@@ -356,7 +428,9 @@ class ParquetSink(Sink):
             / f"bucket={bucket}"
         )
         part_dir.mkdir(parents=True, exist_ok=True)
-        out_path = part_dir / f"part-{uuid.uuid4().hex}.parquet"
+        part_id = uuid.uuid4().hex
+        tmp_path = part_dir / f"part-{part_id}.parquet.tmp"
+        out_path = part_dir / f"part-{part_id}.parquet"
 
         # Coerce book levels (list-of-tuples → list-of-dicts)
         if channel in ("book_snapshot", "book_delta"):
@@ -369,9 +443,19 @@ class ParquetSink(Sink):
         filtered_rows: list[dict[str, Any]] = [{k: row.get(k) for k in schema} for row in rows]
         df = pl.DataFrame(filtered_rows, schema=schema)
 
-        df.write_parquet(
-            out_path,
-            compression="zstd",
-            compression_level=5,
-            row_group_size=250_000,
-        )
+        try:
+            df.write_parquet(
+                tmp_path,
+                compression="zstd",
+                compression_level=5,
+                row_group_size=250_000,
+            )
+            os.replace(tmp_path, out_path)
+        except Exception:
+            # Best-effort cleanup of partial temp file; never leave a half-final.
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+            raise
