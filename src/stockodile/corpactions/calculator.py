@@ -29,6 +29,39 @@ def _parse_date_safe(d: Any) -> datetime.date | None:
         return None
 
 
+def _ts_to_date(ts: int | float) -> datetime.date:
+    """Convert epoch timestamp to UTC date.
+
+    Supports nanoseconds (Stockodile default), microseconds, milliseconds, and seconds
+    via magnitude bands.
+    """
+    ats = abs(float(ts))
+    if ats > 1e17:  # nanoseconds (~1e18 for 2020s)
+        seconds = float(ts) / 1e9
+    elif ats > 1e14:  # microseconds
+        seconds = float(ts) / 1e6
+    elif ats > 1e11:  # milliseconds
+        seconds = float(ts) / 1e3
+    else:
+        seconds = float(ts)
+    return datetime.datetime.fromtimestamp(seconds, tz=datetime.UTC).date()
+
+
+def _action_multipliers(act: CorporateAction) -> tuple[float, float]:
+    """Return (price_factor, share_factor) multipliers for one corporate action."""
+    f_pr = 1.0
+    f_shr = 1.0
+    if act.type == CorpActionType.SPLIT:
+        f_pr = act.value
+        f_shr = act.value
+    elif act.type == CorpActionType.DIVIDEND_STOCK:
+        f_pr = act.value + 1.0
+        f_shr = act.value + 1.0
+    elif act.type == CorpActionType.SPINOFF:
+        f_pr = act.value + 1.0
+    return f_pr, f_shr
+
+
 def calculate_cumulative_factors(
     actions: Iterable[CorporateAction],
     dates: Sequence[datetime.date | str],
@@ -46,32 +79,35 @@ def calculate_cumulative_factors(
     Returns:
         A dictionary mapping each date (as datetime.date) to a tuple of (CFACPR, CFACSHR).
     """
-    # 1. Parse and sort all unique dates
+    # 1. Parse and sort all unique dates from the price calendar
     parsed_dates_raw = {_parse_date_safe(d) for d in dates}
     parsed_dates = sorted({d for d in parsed_dates_raw if d is not None})
 
     if not parsed_dates:
         return {}
 
-    # 2. Determine base date
-    if base_date is None:
-        base_dt = parsed_dates[-1] if parsed_dates else datetime.date.today()
-    else:
-        parsed_base = _parse_date_safe(base_date)
-        if parsed_base is not None:
-            base_dt = parsed_base
-        else:
-            base_dt = parsed_dates[-1] if parsed_dates else datetime.date.today()
-
-    # 3. Group actions by ex_date and calculate daily multiplier f
-    actions_by_date = defaultdict(list)
+    # 2. Group actions by ex_date
+    actions_by_date: dict[datetime.date, list[CorporateAction]] = defaultdict(list)
     for act in actions:
         ex_dt = _parse_date_safe(act.ex_date)
         if ex_dt is not None:
             actions_by_date[ex_dt].append(act)
 
+    # Include action ex-dates in the walk so holiday/weekend events still apply
+    walk_dates = sorted(set(parsed_dates) | set(actions_by_date.keys()))
+
+    # 3. Determine base date
+    if base_date is None:
+        base_dt = parsed_dates[-1]
+    else:
+        parsed_base = _parse_date_safe(base_date)
+        if parsed_base is not None:
+            base_dt = parsed_base
+        else:
+            base_dt = parsed_dates[-1]
+
     # Calculate raw cumulative factors walking backward from the maximum date.
-    desc_dates = sorted(parsed_dates, reverse=True)
+    desc_dates = sorted(walk_dates, reverse=True)
 
     c_raw_pr: dict[datetime.date, float] = {}
     c_raw_shr: dict[datetime.date, float] = {}
@@ -86,19 +122,7 @@ def calculate_cumulative_factors(
         # Events on ex_date `d` affect all dates `< d` (i.e. dates after `d` in desc_dates)
         if d in actions_by_date:
             for act in actions_by_date[d]:
-                f_pr = 1.0
-                f_shr = 1.0
-                if act.type == CorpActionType.SPLIT:
-                    # Real-world providers (Yahoo, MSN, Tiingo) return the split ratio
-                    # directly (e.g., 2.0 for a 2-for-1 split).
-                    f_pr = act.value
-                    f_shr = act.value
-                elif act.type == CorpActionType.DIVIDEND_STOCK:
-                    f_pr = act.value + 1.0
-                    f_shr = act.value + 1.0
-                elif act.type == CorpActionType.SPINOFF:
-                    f_pr = act.value + 1.0
-
+                f_pr, f_shr = _action_multipliers(act)
                 curr_pr *= f_pr
                 curr_shr *= f_shr
 
@@ -108,13 +132,13 @@ def calculate_cumulative_factors(
         norm_shr = c_raw_shr[base_dt]
     else:
         # Fallback to the closest date <= base_dt, or the first date if none
-        closest_dates = [d for d in parsed_dates if d <= base_dt]
+        closest_dates = [d for d in walk_dates if d <= base_dt]
         if closest_dates:
             ref_dt = closest_dates[-1]
             norm_pr = c_raw_pr[ref_dt]
             norm_shr = c_raw_shr[ref_dt]
         else:
-            ref_dt = parsed_dates[0]
+            ref_dt = walk_dates[0]
             norm_pr = c_raw_pr[ref_dt]
             norm_shr = c_raw_shr[ref_dt]
 
@@ -138,10 +162,7 @@ def adjust_bars(
     adjusted_bars = []
     for bar in bars:
         ts = bar.source_ts if bar.source_ts is not None else bar.local_ts
-        if ts > 1e11:  # Milliseconds
-            dt = datetime.datetime.fromtimestamp(ts / 1000.0, tz=datetime.UTC).date()
-        else:
-            dt = datetime.datetime.fromtimestamp(ts, tz=datetime.UTC).date()
+        dt = _ts_to_date(ts)
 
         cfacpr, cfacshr = factors.get(dt, (1.0, 1.0))
 
@@ -204,16 +225,8 @@ def calculate_total_returns(
         ts_curr = b_curr.source_ts if b_curr.source_ts is not None else b_curr.local_ts
         ts_prev = b_prev.source_ts if b_prev.source_ts is not None else b_prev.local_ts
 
-        # Get dates
-        if ts_curr > 1e11:
-            dt_curr = datetime.datetime.fromtimestamp(ts_curr / 1000.0, tz=datetime.UTC).date()
-        else:
-            dt_curr = datetime.datetime.fromtimestamp(ts_curr, tz=datetime.UTC).date()
-
-        if ts_prev > 1e11:
-            dt_prev = datetime.datetime.fromtimestamp(ts_prev / 1000.0, tz=datetime.UTC).date()
-        else:
-            dt_prev = datetime.datetime.fromtimestamp(ts_prev, tz=datetime.UTC).date()
+        dt_curr = _ts_to_date(ts_curr)
+        dt_prev = _ts_to_date(ts_prev)
 
         cfacpr_curr, _ = factors.get(dt_curr, (1.0, 1.0))
         cfacpr_prev, _ = factors.get(dt_prev, (1.0, 1.0))

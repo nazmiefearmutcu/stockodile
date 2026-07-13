@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator, Iterable
 
 from stockodile.ingest.transport import AiohttpWsTransport, Transport
-from stockodile.providers.base import Provider
+from stockodile.providers.base import FatalProviderError, Provider
 from stockodile.reference.registry import Instrument, InstrumentRegistry
 from stockodile.schema.enums import SecurityType
 from stockodile.schema.records import Record, Trade
@@ -15,11 +15,8 @@ from stockodile.util.time import ms_to_ns
 
 log = logging.getLogger(__name__)
 
-
-class FatalProviderError(BaseException):
-    """Exception raised for fatal errors that should terminate the provider supervisor."""
-
-    pass
+# Re-export for callers that import from this module
+__all__ = ["FatalProviderError", "FinnhubProvider"]
 
 
 class RedactedString(str):

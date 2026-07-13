@@ -358,3 +358,45 @@ def test_malformed_dates() -> None:
     factors = calculate_cumulative_factors(actions, dates, base_date="invalid-base-date")
     assert datetime.date(2026, 6, 1) in factors
     assert len(factors) == 1
+
+
+def test_adjust_bars_nanosecond_timestamps() -> None:
+    """Production bars use nanoseconds; factors must apply."""
+    ts_ns = int(datetime.datetime(2026, 6, 1, tzinfo=datetime.UTC).timestamp() * 1e9)
+    bar = Bar(
+        provider="t",
+        symbol="T",
+        symbol_raw="T",
+        local_ts=ts_ns,
+        source_ts=ts_ns,
+        interval="1d",
+        open=200.0,
+        high=200.0,
+        low=200.0,
+        close=200.0,
+        volume=100.0,
+    )
+    factors = {datetime.date(2026, 6, 1): (2.0, 2.0)}
+    adj = adjust_bars([bar], factors)
+    assert adj[0].close == 100.0
+    assert adj[0].volume == 200.0
+
+
+def test_cumulative_factors_include_holiday_ex_date() -> None:
+    """Split on a date without a bar must still adjust earlier prices."""
+    dates = [datetime.date(2026, 6, 1), datetime.date(2026, 6, 3)]
+    actions = [
+        CorporateAction(
+            provider="test",
+            symbol="TEST",
+            symbol_raw="TEST",
+            source_ts=None,
+            local_ts=0,
+            ex_date="2026-06-02",
+            type=CorpActionType.SPLIT,
+            value=2.0,
+        ),
+    ]
+    factors = calculate_cumulative_factors(actions, dates, base_date=dates[-1])
+    assert factors[datetime.date(2026, 6, 3)] == (1.0, 1.0)
+    assert factors[datetime.date(2026, 6, 1)] == (2.0, 2.0)

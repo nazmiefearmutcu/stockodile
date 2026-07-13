@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from stockodile.ingest.transport import AiohttpWsTransport, Transport
-from stockodile.providers.base import Provider
+from stockodile.providers.base import FatalProviderError, Provider
 from stockodile.reference.registry import Instrument, InstrumentRegistry
 from stockodile.schema.enums import SecurityType, Tape
 from stockodile.schema.records import Bar, Quote, Record, Trade
@@ -17,11 +17,8 @@ from stockodile.util.time import rfc3339_to_ns
 
 log = logging.getLogger(__name__)
 
-
-class FatalProviderError(BaseException):
-    """Exception raised for fatal errors that should terminate the provider supervisor."""
-
-    pass
+# Re-export for callers that import from this module
+__all__ = ["AlpacaProvider", "FatalProviderError"]
 
 
 class AlpacaProvider(Provider):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pathlib
 from collections.abc import Iterable
 from typing import Any
 
@@ -70,6 +71,26 @@ def test_deadletter_queue() -> None:
     assert items[2].local_ts == 4
 
     assert len(dlq.drain()) == 0
+
+
+def test_dlq_sqlite_honors_max_size(tmp_path: pathlib.Path) -> None:
+    import sqlite3
+
+    path = tmp_path / "dlq.db"
+    q = DeadLetterQueue(max_size=2, db_path=str(path))
+    for i in range(5):
+        q.put(i, f"r{i}".encode(), "E", "tb")
+    n = sqlite3.connect(path).execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0]
+    assert n == 2
+    items = q.drain()
+    assert len(items) == 2
+    n2 = sqlite3.connect(path).execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0]
+    assert n2 == 0
+
+
+def test_dlq_rejects_zero_max_size() -> None:
+    with pytest.raises(ValueError):
+        DeadLetterQueue(max_size=0)
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+class ProviderError(Exception):
+    """Base class for provider-level errors."""
+
+
+class FatalProviderError(ProviderError):
+    """Non-recoverable provider error — do not reconnect (auth, config, etc.)."""
+
+
+class TransientProviderError(ProviderError):
+    """Recoverable provider error — reconnect with backoff is appropriate."""
+
+
+class SinkError(ProviderError):
+    """Failure writing to the output sink (not a bad market-data frame)."""
+
+
 def backoff_delays(
     attempt: int,
     base: float = 1.0,
@@ -108,6 +124,8 @@ class Provider(ABC):
             try:
                 await transport.connect()
                 await self._subscribe(transport)
+                # Successful connect/subscribe resets consecutive-failure budget
+                attempt = 0
 
                 async for raw in transport:
                     # Use standard time_ns for local timestamp
@@ -127,16 +145,30 @@ class Provider(ABC):
                         continue
 
                     try:
-                        for rec in self.normalize(msg, local_ts):
-                            await self.out.put(rec)
+                        records = list(self.normalize(msg, local_ts))
+                    except FatalProviderError:
+                        raise
                     except Exception as exc:
                         tb = traceback.format_exc()
                         self._dlq.put(local_ts, raw, type(exc).__name__, tb)
                         log.debug("DLQ: normalize error: %s", exc)
+                        continue
+
+                    for rec in records:
+                        try:
+                            await self.out.put(rec)
+                        except Exception as exc:
+                            # Sink failures are not bad frames — do not DLQ
+                            raise SinkError(
+                                f"Sink put failed for {self.name}: {exc}"
+                            ) from exc
 
                 # Transport exhausted normally (StopAsyncIteration) -> done
                 break
 
+            except FatalProviderError:
+                log.error("Provider %s fatal error — not reconnecting", self.name)
+                raise
             except Exception as exc:
                 log.warning("Provider %s error (attempt %d): %s", self.name, attempt, exc)
                 if max_reconnects == 0 or (max_reconnects > 0 and attempt >= max_reconnects):
