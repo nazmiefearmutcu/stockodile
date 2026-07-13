@@ -1329,12 +1329,16 @@ async def simulate_payment(payload: PaymentSignature, request: Request) -> dict[
 
 @app.get("/api/v1/admin/payments", include_in_schema=False)
 async def get_all_payments(
+    request: Request,
     x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
 ) -> dict[str, Any]:
     """Return all payment records. Requires X-Admin-Token matching ADMIN_TOKEN env.
 
     If ADMIN_TOKEN is unset/empty the endpoint is hidden (404). Wrong/missing token -> 401.
     """
+    client_ip = _client_ip(request)
+    if rate_limiter.check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
     admin_token = os.getenv("ADMIN_TOKEN") or ""
     if not admin_token:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -1534,13 +1538,20 @@ async def metrics(
     # Uptime
     uptime = time.time() - SERVER_START_TIME
 
-    # Payments db stats
+    # Payments db stats — statuses used by the payment state machine
+    status_counts: dict[str, int] = {
+        "pending": 0,
+        "paid": 0,
+        "redeeming": 0,
+        "spent": 0,
+    }
     try:
         payments = await PAYMENTS_DB.items_async()
-        pending = sum(1 for p in payments.values() if p.get("status") == "pending")
-        verified = sum(1 for p in payments.values() if p.get("status") == "verified")
+        for p in payments.values():
+            st = str(p.get("status") or "unknown")
+            status_counts[st] = status_counts.get(st, 0) + 1
     except Exception:
-        pending, verified = 0, 0
+        pass
 
     lines = [
         "# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.",
@@ -1572,8 +1583,10 @@ async def metrics(
         "",
         "# HELP stockodile_payments_total Total number of payment transactions by status.",
         "# TYPE stockodile_payments_total counter",
-        f'stockodile_payments_total{{status="pending"}} {pending}',
-        f'stockodile_payments_total{{status="verified"}} {verified}',
     ]
+    for st, count in sorted(status_counts.items()):
+        # Escape label value for Prometheus text format
+        safe_st = st.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'stockodile_payments_total{{status="{safe_st}"}} {count}')
     metrics_str = "\n".join(lines) + "\n"
     return Response(content=metrics_str, media_type="text/plain")

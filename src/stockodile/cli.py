@@ -324,16 +324,26 @@ def prompt_time_range_helper(
         cat = Catalog(data_dir)
         if channel in cat._registered_channels:
             try:
-                where_clause = ""
-                if symbols:
-                    clean_syms = [s for s in symbols if s]
-                    if clean_syms:
-                        sym_list = ", ".join(f"'{s}'" for s in clean_syms)
-                        where_clause = f" WHERE symbol IN ({sym_list})"
-                df = cat.query(
-                    f'SELECT min(local_ts) as min_t, max(local_ts) as max_t '
-                    f'FROM "{channel}"{where_clause}'
-                )
+                # Escape double-quoted identifiers; bind symbols safely
+                safe_channel = channel.replace('"', '""')
+                if not all(c.isalnum() or c == "_" for c in channel):
+                    # Refuse unsafe channel names for dynamic SQL
+                    raise ValueError(f"Unsafe channel name: {channel!r}")
+                clean_syms = [s for s in (symbols or []) if s]
+                if clean_syms:
+                    placeholders = ", ".join("?" for _ in clean_syms)
+                    sql = (
+                        f'SELECT min(local_ts) as min_t, max(local_ts) as max_t '
+                        f'FROM "{safe_channel}" WHERE symbol IN ({placeholders})'
+                    )
+                    conn = cat.connection
+                    result = conn.execute(sql, clean_syms)
+                    df = result.pl()
+                else:
+                    df = cat.query(
+                        f'SELECT min(local_ts) as min_t, max(local_ts) as max_t '
+                        f'FROM "{safe_channel}"'
+                    )
                 if len(df) > 0:
                     row = df.to_dicts()[0]
                     if row.get("min_t") is not None:
