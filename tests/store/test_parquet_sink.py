@@ -199,6 +199,32 @@ async def test_flush_failure_requeues_records(
     assert _find_parquets(tmp_path) == []
 
 
+async def test_flush_grouping_exception_requeues_records(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exception during pre-write grouping must restore popped buffer records."""
+    import stockodile.store.parquet_sink as parquet_sink_mod
+
+    sink = ParquetSink(data_dir=tmp_path, max_buffer_rows=100, flush_interval_seconds=9999)
+    t1 = _trade(150.0)
+    t2 = _trade(151.0)
+    await sink.put(t1)
+    await sink.put(t2)
+
+    def _boom_bucket(_symbol: str) -> int:
+        raise RuntimeError("bucket mapping failed")
+
+    monkeypatch.setattr(parquet_sink_mod, "_symbol_bucket", _boom_bucket)
+
+    with pytest.raises(RuntimeError, match="bucket mapping failed"):
+        await sink.flush()
+
+    assert len(sink._buffers["trade"]) == 2
+    assert sink._buffers["trade"][0] is t1
+    assert sink._buffers["trade"][1] is t2
+    assert _find_parquets(tmp_path) == []
+
+
 async def test_evil_provider_does_not_write_outside_data_dir(tmp_path: pathlib.Path) -> None:
     """Path traversal / slash in provider must not escape data_dir."""
     sink = ParquetSink(data_dir=tmp_path, max_buffer_rows=100, flush_interval_seconds=9999)

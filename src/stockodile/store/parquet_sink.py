@@ -331,70 +331,101 @@ class ParquetSink(Sink):
     async def _flush_channel(self, channel: str) -> None:
         """Write a channel's buffer to one or more Parquet files.
 
-        Records are removed from the buffer only after a successful write.
-        On write failure, failed groups are re-queued and the error is re-raised.
+        Failed writes are re-queued; cancel/exception paths restore uncommitted
+        records so they are not discarded mid-flush. Intentionally rejected
+        unsafe channel/provider segments are not restored.
         """
         records = self._buffers.pop(channel, [])
         if not records:
             return
 
-        if not _is_safe_hive_segment(channel):
-            log.error(
-                "Rejecting %d record(s): unsafe channel hive segment %r",
-                len(records),
-                channel,
-            )
-            return
-
-        # Group records by (provider, date, bucket) — each group → one file.
-        # Skip records whose free-form provider is not a safe path segment.
-        groups: defaultdict[tuple[str, str, int], list[Record]] = defaultdict(list)
-        for record in records:
-            provider = record.provider
-            if not _is_safe_hive_segment(provider):
-                log.warning(
-                    "Skipping record: unsafe provider hive segment %r (channel=%s symbol=%s)",
-                    provider,
+        # Records not yet confirmed written. Restored on any cancel/exception
+        # that escapes before successful disposition. Cleared only for groups
+        # known written or intentionally discarded.
+        pending_restore: list[Record] = list(records)
+        try:
+            if not _is_safe_hive_segment(channel):
+                log.error(
+                    "Rejecting %d record(s): unsafe channel hive segment %r",
+                    len(records),
                     channel,
-                    getattr(record, "symbol", "?"),
                 )
-                continue
-            key = (provider, _date_from_ns(record.local_ts), _symbol_bucket(record.symbol))
-            groups[key].append(record)
+                pending_restore.clear()
+                return
 
-        if not groups:
-            return
+            # Group records by (provider, date, bucket) — each group → one file.
+            # Skip records whose free-form provider is not a safe path segment.
+            groups: defaultdict[tuple[str, str, int], list[Record]] = defaultdict(list)
+            skipped_unsafe = 0
+            for record in records:
+                provider = record.provider
+                if not _is_safe_hive_segment(provider):
+                    skipped_unsafe += 1
+                    log.warning(
+                        "Skipping record: unsafe provider hive segment %r "
+                        "(channel=%s symbol=%s)",
+                        provider,
+                        channel,
+                        getattr(record, "symbol", "?"),
+                    )
+                    continue
+                key = (
+                    provider,
+                    _date_from_ns(record.local_ts),
+                    _symbol_bucket(record.symbol),
+                )
+                groups[key].append(record)
 
-        loop = asyncio.get_running_loop()
-        group_items = list(groups.items())
-        tasks = [
-            loop.run_in_executor(
-                None,
-                self._write_parquet_sync,
-                channel,
-                provider,
-                date,
-                bucket,
-                group_records,
-            )
-            for (provider, date, bucket), group_records in group_items
-        ]
+            # Unsafe providers are intentionally dropped; only restore grouped rows.
+            pending_restore = [r for grp in groups.values() for r in grp]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            if not groups:
+                if skipped_unsafe:
+                    log.error(
+                        "All %d record(s) skipped for channel %r: "
+                        "unsafe provider hive segments",
+                        skipped_unsafe,
+                        channel,
+                    )
+                pending_restore.clear()
+                return
 
-        failed_records: list[Record] = []
-        first_error: BaseException | None = None
-        for (_, group_records), result in zip(group_items, results, strict=True):
-            if isinstance(result, BaseException):
-                failed_records.extend(group_records)
-                if first_error is None:
-                    first_error = result
+            loop = asyncio.get_running_loop()
+            group_items = list(groups.items())
+            tasks = [
+                loop.run_in_executor(
+                    None,
+                    self._write_parquet_sync,
+                    channel,
+                    provider,
+                    date,
+                    bucket,
+                    group_records,
+                )
+                for (provider, date, bucket), group_records in group_items
+            ]
 
-        if failed_records:
-            # Prepend so re-queued rows sit ahead of any concurrent put() arrivals.
-            self._buffers[channel][0:0] = failed_records
-            assert first_error is not None
-            raise first_error
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            failed_records: list[Record] = []
+            first_error: BaseException | None = None
+            for (_, group_records), result in zip(group_items, results, strict=True):
+                if isinstance(result, BaseException):
+                    failed_records.extend(group_records)
+                    if first_error is None:
+                        first_error = result
+
+            # Only uncommitted (failed) groups remain restore-worthy.
+            pending_restore = failed_records
+            if first_error is not None:
+                raise first_error
+            # All groups written successfully.
+            pending_restore = []
+        except BaseException:
+            if pending_restore:
+                # Prepend so re-queued rows sit ahead of any concurrent put() arrivals.
+                self._buffers[channel][0:0] = pending_restore
+            raise
 
     def _write_parquet_sync(
         self,
