@@ -214,3 +214,56 @@ def test_from_row_unknown_channel_raises() -> None:
 
     with pytest.raises(ValueError, match="Unknown channel tag"):
         from_row({**_base("not_a_channel")})
+
+
+def test_onchain_limit_order_fill_roundtrip() -> None:
+    from stockodile.schema.records import LimitOrderFill
+
+    rec = LimitOrderFill(
+        provider="base_onchain",
+        symbol="ETH-USDC",
+        symbol_raw="ETH-USDC",
+        local_ts=_BASE_TS,
+        source_ts=_BASE_TS,
+        exchange_ts=_BASE_TS,
+        tx_hash="0xabc",
+        log_index=1,
+        protocol="1inch",
+        maker="0x1",
+        taker="0x2",
+        maker_token="0xa",
+        taker_token="0xb",
+        maker_amount=1.5,
+        taker_amount=2.5,
+        order_hash="0xord",
+    )
+    row = to_row(rec)
+    assert row["channel"] == "limit_order_fill"
+    assert row["maker_amount"] == 1.5
+    back = from_row(row)
+    assert isinstance(back, LimitOrderFill)
+    assert back.tx_hash == "0xabc"
+    assert back.maker_amount == 1.5
+
+
+def test_onchain_por_update_roundtrip() -> None:
+    from stockodile.schema.records import PoRUpdate
+
+    rec = PoRUpdate(
+        provider="base_onchain",
+        symbol="cbBTC",
+        symbol_raw="cbBTC",
+        exchange_ts=_BASE_TS,
+        local_ts=_BASE_TS,
+        feed_address="0xfeed",
+        token_address="0xtok",
+        reserves=100.0,
+        total_supply=100.0,
+        backing_ratio=1.0,
+        is_backed=True,
+        source_ts=_BASE_TS,
+    )
+    back = from_row(to_row(rec))
+    assert isinstance(back, PoRUpdate)
+    assert back.is_backed is True
+    assert back.reserves == 100.0

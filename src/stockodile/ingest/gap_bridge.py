@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
@@ -371,17 +372,36 @@ class BookResyncBridge:
         return result
 
 
+@dataclass(frozen=True)
+class TradeGapResult:
+    """Result of feeding one trade sequence number.
+
+    ``bool(result)`` is True when a gap was detected so existing ``if feed():``
+    call sites keep working. ``expected``/``got``/``skipped`` support REST
+    backfill of the missing range.
+    """
+
+    is_gap: bool
+    expected: int | None = None
+    got: int | None = None
+    skipped: int | None = None
+    kind: str | None = None  # "forward" | "backward" | None
+
+    def __bool__(self) -> bool:
+        return self.is_gap
+
+
 class TradeSeqGap:
     """Detect gaps in a monotonic trade sequence.
 
     A skip signals missed trades and should trigger a REST backfill for the
-    missing range.
+    missing range (use :class:`TradeGapResult` fields for expected/got).
     """
 
     def __init__(self) -> None:
         self._last_seq: int | None = None
 
-    def feed(self, trade_seq: int) -> bool:
+    def feed(self, trade_seq: int) -> TradeGapResult:
         """Process one trade sequence number.
 
         Parameters
@@ -391,33 +411,53 @@ class TradeSeqGap:
 
         Returns
         -------
-        ``True`` if a gap was detected, ``False`` otherwise.
+        TradeGapResult
+            Truthy if a gap was detected. On gap, ``expected`` is the next
+            sequential id after the previous trade and ``got`` is the observed
+            id. For forward gaps, ``skipped`` is how many ids were missed.
         """
         if self._last_seq is None:
             # First trade: establish baseline, no gap.
             self._last_seq = trade_seq
-            return False
+            return TradeGapResult(is_gap=False, got=trade_seq)
 
-        is_gap = trade_seq != self._last_seq + 1
-        if is_gap:
-            skipped = trade_seq - self._last_seq - 1
-            if skipped < 0:
-                log.warning(
-                    "TradeSeqGap: backward seq — expected seq=%d, got seq=%d "
-                    "(reset or reconnect without TradeSeqGap.reset() call?).",
-                    self._last_seq + 1,
-                    trade_seq,
-                )
-                return True
-            else:
-                log.warning(
-                    "TradeSeqGap: gap detected — expected seq=%d, got seq=%d (skipped %d).",
-                    self._last_seq + 1,
-                    trade_seq,
-                    skipped,
-                )
+        expected = self._last_seq + 1
+        if trade_seq == expected:
+            self._last_seq = trade_seq
+            return TradeGapResult(is_gap=False, expected=expected, got=trade_seq)
+
+        skipped = trade_seq - self._last_seq - 1
+        if skipped < 0:
+            log.warning(
+                "TradeSeqGap: backward seq — expected seq=%d, got seq=%d "
+                "(reset or reconnect without TradeSeqGap.reset() call?).",
+                expected,
+                trade_seq,
+            )
+            # Do not advance last_seq on backward jump so caller still knows baseline
+            return TradeGapResult(
+                is_gap=True,
+                expected=expected,
+                got=trade_seq,
+                skipped=skipped,
+                kind="backward",
+            )
+
+        log.warning(
+            "TradeSeqGap: gap detected — expected seq=%d, got seq=%d (skipped %d).",
+            expected,
+            trade_seq,
+            skipped,
+        )
+        # Advance so subsequent feeds continue from this point after gap handling
         self._last_seq = trade_seq
-        return is_gap
+        return TradeGapResult(
+            is_gap=True,
+            expected=expected,
+            got=trade_seq,
+            skipped=skipped,
+            kind="forward",
+        )
 
     def reset(self) -> None:
         """Reset the gap detector (e.g. after a reconnect)."""

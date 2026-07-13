@@ -239,10 +239,28 @@ async def test_book_resync_bridge() -> None:
 
 def test_trade_seq_gap() -> None:
     gap = TradeSeqGap()
-    assert gap.feed(100) is False
-    assert gap.feed(101) is False
-    # gap detected
-    assert gap.feed(103) is True
+    r0 = gap.feed(100)
+    assert not r0  # bool(TradeGapResult)
+    assert not r0.is_gap
+    assert not gap.feed(101)
+    # gap detected with expected/got for backfill
+    r = gap.feed(103)
+    assert r
+    assert r.is_gap
+    assert r.expected == 102
+    assert r.got == 103
+    assert r.skipped == 1
+    assert r.kind == "forward"
     # reset
     gap.reset()
-    assert gap.feed(200) is False
+    assert not gap.feed(200)
+
+
+def test_trade_seq_gap_backward() -> None:
+    gap = TradeSeqGap()
+    gap.feed(100)
+    r = gap.feed(90)
+    assert r
+    assert r.kind == "backward"
+    assert r.expected == 101
+    assert r.got == 90

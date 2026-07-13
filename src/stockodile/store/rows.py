@@ -29,6 +29,7 @@ from stockodile.schema.enums import (
 from stockodile.schema.records import (
     OHLCV,
     Auction,
+    BalanceCorrection,
     Bar,
     BookDelta,
     BookSnapshot,
@@ -39,10 +40,14 @@ from stockodile.schema.records import (
     IndexValue,
     InsiderTransaction,
     Instrument,
+    LimitOrderFill,
+    LiquidationCall,
     MacroSeries,
     OptionQuote,
+    PoRUpdate,
     Quote,
     Record,
+    ReserveDataUpdated,
     ShortInterest,
     ShortVolume,
     Trade,
@@ -443,5 +448,110 @@ def from_row(row: dict[str, Any]) -> Record:
             value=float(d["value"]) if d.get("value") is not None else None,
             realtime_start=d.get("realtime_start"),
             realtime_end=d.get("realtime_end"),
+        )
+    if channel == "reserve_data_updated":
+        return ReserveDataUpdated(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            local_ts=int(d["local_ts"]),
+            source_ts=d.get("source_ts"),
+            exchange_ts=d.get("exchange_ts"),
+            reserve=d.get("reserve"),
+            liquidity_rate=(
+                float(d["liquidity_rate"]) if d.get("liquidity_rate") is not None else None
+            ),
+            stable_borrow_rate=(
+                float(d["stable_borrow_rate"]) if d.get("stable_borrow_rate") is not None else None
+            ),
+            variable_borrow_rate=(
+                float(d["variable_borrow_rate"])
+                if d.get("variable_borrow_rate") is not None
+                else None
+            ),
+            liquidity_index=(
+                int(d["liquidity_index"]) if d.get("liquidity_index") is not None else None
+            ),
+            variable_borrow_index=(
+                int(d["variable_borrow_index"])
+                if d.get("variable_borrow_index") is not None
+                else None
+            ),
+        )
+    if channel == "liquidation_call":
+        return LiquidationCall(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            local_ts=int(d["local_ts"]),
+            source_ts=d.get("source_ts"),
+            exchange_ts=d.get("exchange_ts"),
+            collateral_asset=d.get("collateral_asset"),
+            debt_asset=d.get("debt_asset"),
+            user=d.get("user"),
+            debt_to_cover=(
+                float(d["debt_to_cover"]) if d.get("debt_to_cover") is not None else None
+            ),
+            liquidated_collateral_amount=(
+                float(d["liquidated_collateral_amount"])
+                if d.get("liquidated_collateral_amount") is not None
+                else None
+            ),
+            liquidator=d.get("liquidator"),
+            receive_a_token=(
+                bool(d["receive_a_token"]) if d.get("receive_a_token") is not None else None
+            ),
+        )
+    if channel == "limit_order_fill":
+        return LimitOrderFill(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            local_ts=int(d["local_ts"]),
+            source_ts=d.get("source_ts"),
+            exchange_ts=d.get("exchange_ts"),
+            tx_hash=d.get("tx_hash"),
+            log_index=int(d["log_index"]) if d.get("log_index") is not None else None,
+            protocol=d.get("protocol"),
+            maker=d.get("maker"),
+            taker=d.get("taker"),
+            maker_token=d.get("maker_token"),
+            taker_token=d.get("taker_token"),
+            maker_amount=(
+                float(d["maker_amount"]) if d.get("maker_amount") is not None else None
+            ),
+            taker_amount=(
+                float(d["taker_amount"]) if d.get("taker_amount") is not None else None
+            ),
+            order_hash=d.get("order_hash"),
+        )
+    if channel == "balance_correction":
+        return BalanceCorrection(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            exchange_ts=d.get("exchange_ts"),
+            local_ts=int(d["local_ts"]),
+            holder_address=str(d["holder_address"]),
+            token_address=str(d["token_address"]),
+            local_balance=float(d["local_balance"]),
+            onchain_balance=float(d["onchain_balance"]),
+            correction_amount=float(d["correction_amount"]),
+            source_ts=d.get("source_ts"),
+        )
+    if channel == "por_update":
+        return PoRUpdate(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            exchange_ts=int(d["exchange_ts"]),
+            local_ts=int(d["local_ts"]),
+            feed_address=str(d["feed_address"]),
+            token_address=str(d["token_address"]),
+            reserves=float(d["reserves"]),
+            total_supply=float(d["total_supply"]),
+            backing_ratio=float(d["backing_ratio"]),
+            is_backed=bool(d["is_backed"]),
+            source_ts=d.get("source_ts"),
         )
     raise ValueError(f"Unknown channel tag: {channel!r}")
