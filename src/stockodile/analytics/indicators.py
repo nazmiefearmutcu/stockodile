@@ -131,9 +131,9 @@ def calculate_rsi(
         avg_loss_vals[period] = avg_l
         for i in range(period + 1, n):
             g = float(gain_list[i] or 0.0)
-            l = float(loss_list[i] or 0.0)
+            loss_i = float(loss_list[i] or 0.0)
             avg_g = (avg_g * (period - 1) + g) / period
-            avg_l = (avg_l * (period - 1) + l) / period
+            avg_l = (avg_l * (period - 1) + loss_i) / period
             avg_gain_vals[i] = avg_g
             avg_loss_vals[i] = avg_l
 
