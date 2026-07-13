@@ -43,7 +43,10 @@ COMMON_DEFAULT_SYMBOLS = [
     "alpaca:NVDA",
 ]
 
-VALID_PROVIDERS = ["alpaca", "finnhub", "google_finance", "msn_money", "stooq"]
+# Live WS / poll collect providers (must implement run())
+VALID_PROVIDERS = ["alpaca", "finnhub", "google_finance", "stooq"]
+# Pull/backfill-only providers (no streaming run loop)
+BACKFILL_ONLY_PROVIDERS = ["msn_money", "tiingo"]
 VALID_CHANNELS = ["trade", "quote", "bar"]
 
 SUGGESTED_SYMBOLS = {
@@ -52,6 +55,7 @@ SUGGESTED_SYMBOLS = {
     "google_finance": ["AAPL", "MSFT"],
     "msn_money": ["AAPL", "MSFT"],
     "stooq": ["AAPL", "MSFT"],
+    "tiingo": ["AAPL", "MSFT"],
 }
 
 
