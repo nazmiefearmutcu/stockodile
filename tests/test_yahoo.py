@@ -272,3 +272,48 @@ async def test_rate_limiting_and_session_reset() -> None:
         assert client.session is not original_session
 
     await client.close()
+
+
+def test_reset_session_clears_yfdata_crumb() -> None:
+    """reset_session must clear YfData singleton crumb/cookie (yfinance 1.4.x)."""
+    client = YahooClient()
+    mock_yf_data = MagicMock()
+    mock_yf_data._crumb = "stale"
+    mock_yf_data._cookie = "stale-cookie"
+    mock_yf_data._cookie_lock = MagicMock()
+    mock_yf_data._cookie_lock.__enter__ = MagicMock(return_value=None)
+    mock_yf_data._cookie_lock.__exit__ = MagicMock(return_value=False)
+
+    with patch("yfinance.data.YfData", return_value=mock_yf_data):
+        client.reset_session()
+
+    assert mock_yf_data._crumb is None
+    assert mock_yf_data._cookie is None
+    client.session.close()
+
+
+@pytest.mark.asyncio
+async def test_fetch_option_chain_handles_none_calls_puts() -> None:
+    """yfinance can return calls=None, puts=None for empty expiry payloads."""
+    client = YahooClient()
+    empty_chain = MagicMock()
+    empty_chain.calls = None
+    empty_chain.puts = None
+
+    async def exec_side_effect(func: Any, *args: Any, **kwargs: Any) -> Any:
+        # Invoke the callable so option_chain path returns empty_chain
+        return func(client.session)
+
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_ticker = MagicMock()
+        mock_ticker.options = ["2026-07-18"]
+        mock_ticker.option_chain.return_value = empty_chain
+        mock_ticker_cls.return_value = mock_ticker
+
+        with patch.object(
+            client, "_execute_yf_call", new_callable=AsyncMock, side_effect=exec_side_effect
+        ):
+            records = await client.fetch_option_chain("AAPL")
+            assert records == []
+
+    await client.close()

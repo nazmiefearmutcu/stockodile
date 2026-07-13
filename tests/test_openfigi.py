@@ -179,3 +179,14 @@ async def test_client_rate_limiting_429_retry() -> None:
     assert len(results) == 1
     assert results[0][0].figi == "BBG000BLNNH6"
     assert session_mock.post.call_count == 2
+
+
+def test_unauthenticated_batch_size_is_10() -> None:
+    client = OpenFigiClient()
+    assert client._batch_size == 10
+    assert "v3" in client.base_url
+
+
+def test_authenticated_batch_size_is_100() -> None:
+    client = OpenFigiClient(api_key="test-key")
+    assert client._batch_size == 100

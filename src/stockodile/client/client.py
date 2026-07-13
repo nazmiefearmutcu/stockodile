@@ -40,9 +40,14 @@ class StockodileClient:
     def __init__(self, data_dir: Path | str) -> None:
         self._catalog = Catalog(data_dir)
 
-    def query(self, sql: str) -> pl.DataFrame:
-        """Execute arbitrary DuckDB SQL against registered channel views."""
-        return self._catalog.query(sql)
+    def query(self, sql: str, *, readonly: bool = False) -> pl.DataFrame:
+        """Execute DuckDB SQL against registered channel views.
+
+        Args:
+            sql: SQL string.
+            readonly: When True, reject multi-statement / mutating SQL (MCP).
+        """
+        return self._catalog.query(sql, readonly=readonly)
 
     def scan(
         self,

@@ -49,8 +49,14 @@ class SQLiteCache:
         self.db_path = str(db_path)
         self._init_db()
 
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        return conn
+
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS openfigi_cache (
                     cache_key TEXT PRIMARY KEY,
@@ -60,7 +66,7 @@ class SQLiteCache:
             """)
 
     def _get_sync(self, key: str) -> str | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             cursor = conn.execute(
                 "SELECT response_json FROM openfigi_cache WHERE cache_key = ?", (key,)
             )
@@ -68,7 +74,7 @@ class SQLiteCache:
             return row[0] if row else None
 
     def _set_sync(self, key: str, value_json: str) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO openfigi_cache (cache_key, response_json) VALUES (?, ?)",
                 (key, value_json),

@@ -574,7 +574,18 @@ async def serve_stdio(data_dir: Path = Path("data")) -> None:
                 elif tool_name == "query_market_data":
                     sql = arguments.get("sql", "")
                     try:
-                        df = client.query(sql)
+                        # Network-facing: enforce read-only allowlist
+                        if hasattr(client, "query"):
+                            try:
+                                df = client.query(sql, readonly=True)
+                            except TypeError:
+                                # Older client without readonly kwarg
+                                from stockodile.store.catalog import assert_readonly_sql
+
+                                assert_readonly_sql(sql)
+                                df = client.query(sql)
+                        else:
+                            raise RuntimeError("query not supported")
                         # Convert polars/pandas DataFrame to dict list
                         tool_result = (
                             df.to_dicts()

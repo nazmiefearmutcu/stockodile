@@ -7,13 +7,16 @@ from web3 import Web3
 
 log = logging.getLogger(__name__)
 
-# Coinbase Smart Wallet Factory Address
-FACTORY_ADDRESS = "0x00000000003b26925905180037a35368a55e206b"
-# AccountCreated(address indexed account, address indexed owner)
-# Placeholder or actual signature
-ACCOUNT_CREATED_TOPIC = (
-    "0xe9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9"
+# Coinbase Smart Wallet factory deployments (CREATE2 — same address across chains)
+# https://github.com/coinbase/smart-wallet#deployments
+FACTORY_ADDRESSES = (
+    "0x0BA5ED0c6AA8c49038F819E587E2633c4A9F428a",  # v1
+    "0xBA5ED110eFDBa3D005bfC882d75358ACBbB85842",  # v1.1
 )
+# Back-compat single constant (v1)
+FACTORY_ADDRESS = FACTORY_ADDRESSES[0]
+# AccountCreated(address indexed account, ...) — used when available; may be None
+ACCOUNT_CREATED_TOPIC: str | None = None
 
 class CoinbaseSmartWalletDetector:
     """Detects if an address is a Coinbase Smart Wallet with disk caching."""
@@ -56,32 +59,48 @@ class CoinbaseSmartWalletDetector:
                 # For Coinbase Smart Wallet, typical proxy contract bytecode starts
                 # with ERC-1967/minimal proxy patterns
                 # or we can query logs of the factory.
-                # Let's search logs from the factory to see if this account was created
-                topic_addr = "0x" + checksum_address[2:].lower().zfill(64)
-                logs = await w3.eth.get_logs({
-                    "address": Web3.to_checksum_address(FACTORY_ADDRESS),
-                    "topics": [None, topic_addr], # account is the first indexed param
-                    "fromBlock": 0,
-                    "toBlock": "latest"
-                })
-                if logs:
+                # Prefer bytecode heuristics first (cheap); factory logs are
+                # best-effort with a recent block window only.
+                bytecode_hex = bytecode.hex()
+                if "363d3d37" in bytecode_hex or "5f5f365f" in bytecode_hex:
                     is_wallet = True
                 else:
-                    # Fallback check: if it has bytecode and is not a known exchange contract
-                    # we can analyze proxy pattern or just classify it based on bytecode signature.
-                    # Coinbase Smart Wallet is typically a proxy pointing to implementation.
-                    # If bytecode contains specific proxy pattern, tag it.
-                    bytecode_hex = bytecode.hex()
-                    # Standard ERC-1967 proxy or custom Coinbase Smart Wallet
-                    # bytecode signature elements
-                    if "363d3d37" in bytecode_hex or "5f5f365f" in bytecode_hex:
-                        is_wallet = True
+                    topic_addr = "0x" + checksum_address[2:].lower().zfill(64)
+                    try:
+                        latest = int(await w3.eth.block_number)
+                        # Avoid full-chain eth_getLogs (rejected by most RPCs)
+                        from_block = max(0, latest - 200_000)
+                        for factory in FACTORY_ADDRESSES:
+                            # Indexed account topic is typically topics[1]
+                            topics: list[Any]
+                            if ACCOUNT_CREATED_TOPIC:
+                                topics = [ACCOUNT_CREATED_TOPIC, topic_addr]
+                            else:
+                                topics = [None, topic_addr]
+                            logs = await w3.eth.get_logs(
+                                {
+                                    "address": Web3.to_checksum_address(factory),
+                                    "topics": topics,
+                                    "fromBlock": from_block,
+                                    "toBlock": "latest",
+                                }
+                            )
+                            if logs:
+                                is_wallet = True
+                                break
+                    except Exception as log_err:
+                        log.debug(
+                            "Factory log lookup failed for %s: %s",
+                            address,
+                            log_err,
+                        )
         except Exception as e:
             log.debug(f"Error checking bytecode / logs for {address}: {e}")
-            # If offline / RPC error, keep cache unchanged or fallback to False
+            # If offline / RPC error, do not poison permanent negative cache
             return False
 
-        # Cache the result
-        self.cache[checksum_address] = is_wallet
-        self._save_cache()
+        # Only permanently cache positive results; negatives may be RPC limits
+        if is_wallet:
+            self.cache[checksum_address] = True
+            self._save_cache()
         return is_wallet

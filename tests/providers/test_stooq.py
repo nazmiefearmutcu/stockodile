@@ -230,3 +230,30 @@ async def test_stooq_captcha_api_solvers() -> None:
     with patch("aiohttp.ClientSession", MockClientSessionAntiCaptcha):
         code = await provider.solve_captcha_anticaptcha("test_key", b"dummy_img")
         assert code == "solved_anti_456"
+
+
+def test_parse_csv_rest_format_yyyy_mm_dd() -> None:
+    """REST downloads use Date,Open,... with yyyy-MM-dd (not bulk ZIP layout)."""
+    from stockodile.providers.stooq.connector import StooqProvider
+    from stockodile.schema.records import OHLCV
+
+    p = object.__new__(StooqProvider)
+    p.name = "stooq"
+    csv = b"Date,Open,High,Low,Close,Volume\n2026-06-20,180.0,182.0,179.0,181.0,5000000\n"
+    recs = StooqProvider._parse_csv(p, csv, "AAPL.US", 0, 2 * 10**18)
+    assert len(recs) == 1
+    assert isinstance(recs[0], OHLCV)
+    assert recs[0].close == 181.0
+    assert recs[0].open == 180.0
+
+
+def test_parse_csv_bulk_zip_angle_headers() -> None:
+    from stockodile.providers.stooq.connector import StooqProvider
+    from stockodile.schema.records import OHLCV
+
+    p = object.__new__(StooqProvider)
+    p.name = "stooq"
+    csv = b"<DATE>,<OPEN>,<HIGH>,<LOW>,<CLOSE>,<VOL>\n20260620,180.0,182.0,179.0,181.0,5000000\n"
+    recs = StooqProvider._parse_csv(p, csv, "AAPL.US", 0, 2 * 10**18)
+    assert len(recs) == 1
+    assert isinstance(recs[0], OHLCV)

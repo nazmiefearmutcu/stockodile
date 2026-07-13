@@ -315,24 +315,24 @@ SWAP_TOPIC_V3 = "0xc42079f94a6350d7e6235f29174924f9287a20ac8e91c97b870daEE5297F6
 SWAP_TOPIC_V2 = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
 RESERVE_DATA_UPDATED_TOPIC = "0x804c9d53b43c501f114c036a6e2e28a5ff6b2512f45856488d0426d400e95cb5"
 LIQUIDATION_CALL_TOPIC = "0xe41d8df5aeb3812fd567b454174378f89ff89100868f029671d1824ef78c902c"
-ONEINCH_ORDER_FILLED_TOPIC = "0x"
-ZEROX_LIMIT_ORDER_FILLED_TOPIC = "0x"
-
-
-def decode_1inch_order_filled(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return {}
-
-
-def decode_0x_limit_order_filled(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return {}
+from .limit_orders import (
+    ONEINCH_ORDER_FILLED_TOPIC,
+    ZEROX_LIMIT_ORDER_FILLED_TOPIC,
+    decode_0x_limit_order_filled,
+    decode_1inch_order_filled,
+)
+from .smart_wallet import CoinbaseSmartWalletDetector
 
 
 class DummySmartWalletDetector:
+    """Test/offline stub that never classifies senders as smart wallets."""
+
     async def is_smart_wallet(self, w3: Any, sender: str) -> bool:
         return False
 
 
-smart_wallet_detector = DummySmartWalletDetector()
+# Use real Coinbase Smart Wallet detector in production; tests may replace.
+smart_wallet_detector: Any = CoinbaseSmartWalletDetector()
 
 
 def _register_custom_pools(custom_pools: dict[str, dict[str, Any]] | None) -> None:

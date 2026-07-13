@@ -27,7 +27,7 @@ class OpenFigiClient:
         api_key: str | None = None,
         cache: OpenFigiCache | None = None,
         session: aiohttp.ClientSession | None = None,
-        base_url: str = "https://api.openfigi.com/v1/mapping",
+        base_url: str = "https://api.openfigi.com/v3/mapping",
     ) -> None:
         """Initialize the OpenFIGI API client.
 
@@ -35,7 +35,7 @@ class OpenFigiClient:
             api_key: Optional OpenFIGI API key.
             cache: Optional cache implementation. Defaults to InMemoryCache.
             session: Optional existing ClientSession.
-            base_url: The API endpoint URL.
+            base_url: The API endpoint URL (defaults to v3 mapping).
         """
         self.api_key = api_key
         self.cache = cache if cache is not None else InMemoryCache()
@@ -46,9 +46,11 @@ class OpenFigiClient:
         if api_key:
             # 25 requests per 6 seconds
             self.rate_limiter = TokenBucketLimiter(rate=25.0 / 6.0, capacity=25.0)
+            self._batch_size = 100
         else:
-            # 25 requests per minute
+            # 25 requests per minute; unauthenticated job batch max is 10
             self.rate_limiter = TokenBucketLimiter(rate=25.0 / 60.0, capacity=25.0)
+            self._batch_size = 10
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Retrieve or construct the active ClientSession."""
@@ -114,8 +116,8 @@ class OpenFigiClient:
             # All results satisfied from cache
             return [res for res in output if res is not None]
 
-        # 2. Extract pending jobs and partition into batches of 100
-        batch_size = 100
+        # 2. Extract pending jobs and partition by authenticated batch limit
+        batch_size = self._batch_size
         pending_jobs = [jobs[idx] for idx in pending_indices]
         batches = [
             pending_jobs[i : i + batch_size] for i in range(0, len(pending_jobs), batch_size)
@@ -127,8 +129,13 @@ class OpenFigiClient:
 
         # Flatten batch results
         flat_results = [res for batch_res in batch_results for res in batch_res]
+        if len(flat_results) != len(pending_indices):
+            raise RuntimeError(
+                f"OpenFIGI response length mismatch: got {len(flat_results)} "
+                f"results for {len(pending_indices)} jobs"
+            )
 
-        # 4. Populate cache and outputs
+        # 4. Populate cache and outputs (skip caching API error empties is best-effort)
         for i, idx in enumerate(pending_indices):
             job = jobs[idx]
             records = flat_results[i]
@@ -178,6 +185,11 @@ class OpenFigiClient:
                     if response.status == 200:
                         body = await response.read()
                         response_data = msgspec.json.decode(body, type=list[OpenFigiResponseItem])
+                        if len(response_data) != len(batch_jobs):
+                            raise RuntimeError(
+                                f"OpenFIGI batch length mismatch: sent {len(batch_jobs)} "
+                                f"jobs, got {len(response_data)} responses"
+                            )
 
                         results: list[list[FigiRecord]] = []
                         for resp_item in response_data:
@@ -186,6 +198,24 @@ class OpenFigiClient:
                             else:
                                 results.append([])
                         return results
+
+                    elif response.status == 413:
+                        # Payload too large — shrink batch and retry (unauthenticated limit)
+                        if len(batch_jobs) <= 1:
+                            body_text = await response.text()
+                            raise RuntimeError(
+                                f"OpenFIGI 413 for single job: {body_text[:200]}"
+                            )
+                        mid = max(1, len(batch_jobs) // 2)
+                        logger.warning(
+                            "OpenFIGI 413; splitting batch of %d into %d + %d",
+                            len(batch_jobs),
+                            mid,
+                            len(batch_jobs) - mid,
+                        )
+                        left = await self._execute_batch(batch_jobs[:mid])
+                        right = await self._execute_batch(batch_jobs[mid:])
+                        return left + right
 
                     elif response.status == 429:
                         retry_after = response.headers.get("Retry-After")

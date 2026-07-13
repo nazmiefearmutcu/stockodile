@@ -129,7 +129,8 @@ class YahooClient:
         self.session = self._create_session()
         logger.info("Yahoo Finance requests session reset with fresh User-Agent and clean cookies.")
 
-        # Clear yfinance global caches if present in runtime
+        # Clear yfinance crumb/cookie state used by yfinance 1.4.x+ (YfData singleton)
+        # and legacy utils modules if present.
         try:
             import yfinance as yf
 
@@ -146,6 +147,30 @@ class YahooClient:
                         mod._crumb = None
                     if hasattr(mod, "_cookie"):
                         mod._cookie = None
+
+            try:
+                from yfinance.data import YfData
+
+                yf_data = YfData()
+                # Clear crumb/cookie under lock; assign session directly so we
+                # do not re-enter _cookie_lock via _set_session (deadlock risk).
+                lock = getattr(yf_data, "_cookie_lock", None)
+
+                def _clear() -> None:
+                    if hasattr(yf_data, "_crumb"):
+                        yf_data._crumb = None
+                    if hasattr(yf_data, "_cookie"):
+                        yf_data._cookie = None
+                    if hasattr(yf_data, "_session"):
+                        yf_data._session = self.session
+
+                if lock is not None:
+                    with lock:
+                        _clear()
+                else:
+                    _clear()
+            except Exception as e:
+                logger.debug("Failed to reset YfData crumb/cookie: %s", e)
         except Exception as e:
             logger.debug("Failed to purge yfinance global crumb cache: %s", e)
 
@@ -533,6 +558,8 @@ class YahooClient:
 
             single_records: list[OptionQuote] = []
             for opt_type, df in (("calls", chain.calls), ("puts", chain.puts)):
+                if df is None or getattr(df, "empty", True):
+                    continue
                 opt_enum = OptType.C if opt_type == "calls" else OptType.P
                 for _, row in df.iterrows():
                     contract_symbol = str(row["contractSymbol"])

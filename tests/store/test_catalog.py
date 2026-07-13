@@ -308,3 +308,26 @@ async def test_catalog_scan_nobucket(tmp_path: pathlib.Path) -> None:
     assert len(df) == 2
     assert df["price"][0] == 100.0
     assert df["price"][1] == 200.0
+
+
+def test_assert_readonly_sql_rejects_copy() -> None:
+    from stockodile.store.catalog import assert_readonly_sql
+    import pytest
+
+    with pytest.raises(ValueError, match="disallowed|Only SELECT|Multi-statement|Empty"):
+        assert_readonly_sql("COPY (SELECT 1) TO '/tmp/x.csv'")
+
+
+def test_assert_readonly_sql_allows_select() -> None:
+    from stockodile.store.catalog import assert_readonly_sql
+
+    assert_readonly_sql("SELECT 1 AS x")
+
+
+def test_query_readonly_blocks_mutating_sql(tmp_path: pathlib.Path) -> None:
+    import pytest
+
+    cat = Catalog(tmp_path)
+    with pytest.raises(ValueError):
+        cat.query("DROP TABLE IF EXISTS trade", readonly=True)
+    cat.close()

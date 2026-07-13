@@ -25,13 +25,50 @@ from __future__ import annotations
 
 import datetime
 import glob as _glob
+import logging
+import re
 import threading
 from pathlib import Path
+from typing import Self
 
 import duckdb
 import polars as pl
 
 from stockodile.store.rows import _symbol_bucket
+
+log = logging.getLogger(__name__)
+
+# Safe channel / view identifiers (no SQL / glob metacharacters)
+_SAFE_CHANNEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Patterns blocked for network-facing / restricted SQL (MCP)
+_UNSAFE_SQL_RE = re.compile(
+    r"\b(COPY|ATTACH|INSTALL|LOAD|PRAGMA|CALL|EXPORT|IMPORT|CREATE\s+OR\s+REPLACE\s+TABLE|"
+    r"DROP|ALTER|INSERT|UPDATE|DELETE|TRUNCATE|GRANT|REVOKE)\b"
+    r"|read_csv|read_csv_auto|read_json|read_json_auto|read_parquet\s*\(\s*['\"]/"
+    r"|read_blob|read_text",
+    re.IGNORECASE,
+)
+
+
+def assert_readonly_sql(sql: str) -> None:
+    """Reject multi-statement and mutating / external-access SQL.
+
+    Used by MCP and other network-facing query entry points. Local CLI may
+    still call ``Catalog.query`` without this guard for power users.
+    """
+    stripped = sql.strip().rstrip(";").strip()
+    if not stripped:
+        raise ValueError("Empty SQL")
+    # Single statement only
+    if ";" in stripped:
+        raise ValueError("Multi-statement SQL is not allowed")
+    upper = stripped.lstrip().upper()
+    if not (upper.startswith("SELECT") or upper.startswith("WITH") or upper.startswith("DESCRIBE")
+            or upper.startswith("SHOW") or upper.startswith("EXPLAIN")):
+        raise ValueError("Only SELECT/WITH/DESCRIBE/SHOW/EXPLAIN queries are allowed")
+    if _UNSAFE_SQL_RE.search(stripped):
+        raise ValueError("SQL contains disallowed keywords or external readers")
 
 
 class Catalog:
@@ -46,31 +83,67 @@ class Catalog:
         self._lock = threading.Lock()
         self._thread_local = threading.local()
         # In-memory DuckDB connection.
+        # Note: enable_external_access stays on so hive parquet views/scan work.
+        # Network-facing callers must use query(..., readonly=True) allowlist.
         self._conn = duckdb.connect()
         self._registered_channels: set[str] = set()
+        self._closed = False
         # Register views for all channels present on disk.
         self._refresh_views()
 
     def _get_conn(self) -> duckdb.DuckDBPyConnection:
+        if self._closed:
+            raise RuntimeError("Catalog is closed")
         if not hasattr(self._thread_local, "conn"):
             self._thread_local.conn = self._conn.cursor()
         return self._thread_local.conn  # type: ignore[no-any-return]
+
+    def close(self) -> None:
+        """Close thread-local cursors and the main DuckDB connection."""
+        if self._closed:
+            return
+        with self._lock:
+            tl_conn = getattr(self._thread_local, "conn", None)
+            if tl_conn is not None:
+                try:
+                    tl_conn.close()
+                except Exception:
+                    pass
+                try:
+                    del self._thread_local.conn
+                except Exception:
+                    pass
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._closed = True
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def query(self, sql: str) -> pl.DataFrame:
-        """Execute arbitrary SQL against registered channel views.
+    def query(self, sql: str, *, readonly: bool = False) -> pl.DataFrame:
+        """Execute SQL against registered channel views.
 
         Views available mirror the channel names (e.g. ``trade``, ``quote``, …).
 
         Args:
             sql: Any DuckDB-compatible SQL query.
+            readonly: When True, reject multi-statement and mutating SQL
+                (use for MCP / network surfaces).
 
         Returns:
             A Polars DataFrame with the query result.
         """
+        if readonly:
+            assert_readonly_sql(sql)
         # Refresh views so newly written files are picked up.
         self._refresh_views()
         conn = self._get_conn()
@@ -101,6 +174,8 @@ class Catalog:
             A Polars DataFrame ordered by ``local_ts``, potentially empty if
             no rows match.
         """
+        if not _SAFE_CHANNEL_RE.fullmatch(channel):
+            raise ValueError(f"Unsafe channel name: {channel!r}")
         # Build narrow glob paths by date.
         glob_paths = self._build_date_globs(channel, start_ns, end_ns, symbol)
 
@@ -164,6 +239,9 @@ class Catalog:
                     if not chan_dir.is_dir() or not chan_dir.name.startswith("channel="):
                         continue
                     channel = chan_dir.name[len("channel=") :]
+                    if not _SAFE_CHANNEL_RE.fullmatch(channel):
+                        log.warning("Skipping unsafe channel directory name: %r", channel)
+                        continue
                     if force or channel not in self._registered_channels:
                         self._create_view(channel)
 
@@ -173,6 +251,10 @@ class Catalog:
         The glob covers all providers and all dates for that channel so that
         ``query("SELECT … FROM trade")`` works without extra parameters.
         """
+        if not _SAFE_CHANNEL_RE.fullmatch(channel):
+            log.warning("Refusing to create view for unsafe channel name: %r", channel)
+            return
+
         patterns: list[str] = []
         # Determine if bucketed or non-bucketed layout is used on disk.
         pattern_bucket = str(
@@ -202,7 +284,8 @@ class Catalog:
             paths_literal = ", ".join(f"'{p}'" for p in escaped_patterns)
             paths_literal = f"[{paths_literal}]"
 
-        escaped_channel = channel.replace("'", "''")
+        # Double-quote identifier escape is "" not single-quote doubling
+        escaped_channel = channel.replace('"', '""')
         sql = f"""
             CREATE OR REPLACE VIEW "{escaped_channel}" AS
             SELECT * FROM read_parquet(
@@ -214,8 +297,8 @@ class Catalog:
         try:
             self._conn.execute(sql)
             self._registered_channels.add(channel)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Failed to create view for channel %r: %s", channel, e)
 
     def _build_date_globs(
         self, channel: str, start_ns: int, end_ns: int, symbol: str | None = None

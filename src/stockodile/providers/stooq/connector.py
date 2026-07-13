@@ -26,6 +26,44 @@ from stockodile.util.time import now_ns
 log = logging.getLogger(__name__)
 
 
+class _BufferedResponse:
+    """aiohttp ClientResponse wrapper that re-serves an already-read body.
+
+    Used when we peek at text/html for PoW markers but still need callers to
+    read the full body (e.g. CAPTCHA submit returning ``"1"``).
+    """
+
+    def __init__(self, resp: aiohttp.ClientResponse, body: str) -> None:
+        self._resp = resp
+        self._body = body
+        self.status = resp.status
+        self.headers = resp.headers
+        self.url = resp.url
+        self.reason = resp.reason
+        self.ok = resp.ok
+
+    async def text(self, *args: Any, **kwargs: Any) -> str:
+        return self._body
+
+    async def read(self) -> bytes:
+        return self._body.encode("utf-8")
+
+    async def json(self, *args: Any, **kwargs: Any) -> Any:
+        import json
+
+        return json.loads(self._body)
+
+    def close(self) -> None:
+        self._resp.close()
+
+    def release(self) -> None:
+        if hasattr(self._resp, "release"):
+            self._resp.release()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._resp, name)
+
+
 def _mine_pow(c: str, target_prefix: str) -> int:
     n = 0
     while True:
@@ -303,7 +341,8 @@ class StooqProvider(Provider):
         import base64
 
         img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-        url_in = "http://2captcha.com/in.php"
+        # Form-encoded body (not JSON); https to avoid leaking API key
+        url_in = "https://2captcha.com/in.php"
         data = {
             "key": api_key,
             "method": "base64",
@@ -313,7 +352,7 @@ class StooqProvider(Provider):
         session = self._get_session()
         timeout = aiohttp.ClientTimeout(total=15.0)
         try:
-            async with session.post(url_in, json=data, timeout=timeout) as resp:
+            async with session.post(url_in, data=data, timeout=timeout) as resp:
                 if resp.status != 200:
                     body_text = await resp.text()
                     raise RuntimeError(
@@ -334,7 +373,7 @@ class StooqProvider(Provider):
                 raise RuntimeError(f"2captcha communication failed: {e}") from e
             raise
 
-        url_res = "http://2captcha.com/res.php"
+        url_res = "https://2captcha.com/res.php"
         for _ in range(30):
             await asyncio.sleep(5)
             params = {"key": api_key, "action": "get", "id": task_id, "json": 1}
@@ -458,6 +497,8 @@ class StooqProvider(Provider):
                         resp.close()
                         await self._solve_pow(url, body, session)
                         continue
+                    # Body already consumed — wrap so callers can re-read text/bytes
+                    return _BufferedResponse(resp, body)
                 return resp
             except aiohttp.ClientError as e:
                 log.warning("Stooq request failed (attempt %d/5): %s", attempt + 1, e)
@@ -479,7 +520,18 @@ class StooqProvider(Provider):
             log.error("Failed to parse Stooq CSV data with Polars: %s", e)
             return []
 
-        df = df.rename({col: col.strip("<>") for col in df.columns})
+        # Normalize bulk-ZIP headers (<DATE>) and REST headers (Date, Volume)
+        rename_map: dict[str, str] = {}
+        for col in df.columns:
+            stripped = col.strip("<>").strip()
+            key = stripped.upper()
+            if key in ("DATE", "OPEN", "HIGH", "LOW", "CLOSE", "VOL", "VOLUME", "TICKER", "PER"):
+                if key == "VOLUME":
+                    key = "VOL"
+                rename_map[col] = key
+            else:
+                rename_map[col] = stripped
+        df = df.rename(rename_map)
 
         required = ["DATE", "OPEN", "HIGH", "LOW", "CLOSE"]
         for col in required:
@@ -503,9 +555,14 @@ class StooqProvider(Provider):
         local_ts = now_ns()
 
         for i in range(len(df)):
-            date_val = str(dates[i])
+            date_val = str(dates[i]).strip()
             try:
-                dt = datetime.strptime(date_val, "%Y%m%d").replace(tzinfo=UTC)
+                if "-" in date_val:
+                    # REST CSV: yyyy-MM-dd
+                    dt = datetime.strptime(date_val[:10], "%Y-%m-%d").replace(tzinfo=UTC)
+                else:
+                    # Bulk ZIP: yyyymmdd
+                    dt = datetime.strptime(date_val[:8], "%Y%m%d").replace(tzinfo=UTC)
                 source_ts = int((dt - EPOCH).total_seconds()) * 1_000_000_000
             except Exception:
                 continue
