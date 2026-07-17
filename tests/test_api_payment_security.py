@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+# api_server needs web3 + fastapi (stockodile[full]); eth_account is imported directly.
+pytest.importorskip("web3")
+pytest.importorskip("eth_account")
+
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi.testclient import TestClient

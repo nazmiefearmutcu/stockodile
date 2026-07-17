@@ -8,6 +8,8 @@ import subprocess
 import aiohttp
 import pytest
 
+pytest.importorskip("web3")
+
 # Define/mock POOL_SPECS, TOKENS, FACTORIES
 from stockodile.exchanges.base_onchain.connector import FACTORIES, TOKENS
 from stockodile.reference.registry import InstrumentRegistry

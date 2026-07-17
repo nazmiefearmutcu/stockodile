@@ -1,6 +1,13 @@
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+# Skip on core-only installs BEFORE the yfinance sys.modules mock below: if the
+# stockodile.mcp_server import fails mid-module, the mock is never restored and
+# poisons later-collected tests (test_proof/test_yahoo).
+pytest.importorskip("web3")
+
 # Mock yfinance to prevent importing pandas which is extremely slow in the test environment
 mock_yf = MagicMock()
 orig_yf = sys.modules.get("yfinance")
@@ -8,8 +15,6 @@ sys.modules["yfinance"] = mock_yf
 
 from collections.abc import Generator  # noqa: E402
 from typing import Any  # noqa: E402
-
-import pytest  # noqa: E402
 
 from stockodile.mcp_server import AsyncWeb3, get_base_market_data, get_onchain_price  # noqa: E402
 

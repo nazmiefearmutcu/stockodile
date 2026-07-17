@@ -2189,10 +2189,12 @@ onchain = [
 web = [
     { name = "fastapi" },
     { name = "uvicorn" },
+    { name = "web3" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "eth-account" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -2215,6 +2217,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=16" },
     { name = "python-dateutil", specifier = ">=2.9" },
     { name = "rich", specifier = ">=13" },
+    { name = "stockodile", extras = ["onchain"], marker = "extra == 'web'" },
     { name = "stockodile", extras = ["onchain", "web"], marker = "extra == 'full'" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", marker = "extra == 'web'", specifier = ">=0.20.0" },
@@ -2226,6 +2229,7 @@ provides-extras = ["onchain", "web", "full"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "eth-account", specifier = ">=0.13" },
     { name = "mypy", specifier = ">=1.11" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.23" },

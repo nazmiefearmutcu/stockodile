@@ -16,12 +16,19 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, cast
 
-from fastapi import FastAPI, Header, HTTPException, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from web3 import AsyncHTTPProvider, Web3
+try:
+    from fastapi import FastAPI, Header, HTTPException, Request, Response
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import HTMLResponse, StreamingResponse
+    from fastapi.staticfiles import StaticFiles
+    from pydantic import BaseModel
+    from web3 import AsyncHTTPProvider, Web3
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        f"stockodile.api_server requires the optional dependency '{exc.name}' "
+        "(needs both the 'web' and 'onchain' extras). "
+        "Install them with: pip install 'stockodile[full]'"
+    ) from exc
 
 from stockodile import __version__
 from stockodile.mcp_server import AsyncWeb3, get_onchain_price

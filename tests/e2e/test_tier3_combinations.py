@@ -4,6 +4,8 @@ import json
 import aiohttp
 import pytest
 
+pytest.importorskip("web3")
+
 from stockodile.exchanges.base_onchain.connector import (
     BaseOnchainTransport,
 )

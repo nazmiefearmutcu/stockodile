@@ -8,8 +8,14 @@ import traceback
 from pathlib import Path
 from typing import Any, cast
 
-import web3
-from web3 import AsyncHTTPProvider
+try:
+    import web3
+    from web3 import AsyncHTTPProvider
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        f"stockodile.mcp_server requires the optional dependency '{exc.name}'. "
+        "Install it with: pip install 'stockodile[full]'"
+    ) from exc
 
 
 class AsyncWeb3(web3.AsyncWeb3[Any]):

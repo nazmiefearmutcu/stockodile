@@ -71,7 +71,12 @@ git clone https://github.com/nazmiefearmutcu/stockodile.git
 cd stockodile
 
 # Synchronize python dependencies and setup virtual environment
+# (bare `uv sync` installs the CORE package only: streaming/scrape/store, no web3/fastapi)
 uv sync
+
+# Install optional extras too (onchain: web3, web: fastapi/uvicorn) —
+# required for the API/MCP servers and for running the full test suite
+uv sync --all-extras
 ```
 
 ### Running the CLI
@@ -99,8 +104,11 @@ uv run stockodile indicators --symbol alpaca:AAPL --indicator sma --period 14 --
 
 We enforce a strict coding standard: **mypy strict mode** type safety and **ruff** linting.
 
-# Run the complete test suite
+```bash
+# Run the complete test suite (requires the optional extras: uv sync --all-extras)
 uv run pytest
+
+# On a core-only checkout (bare `uv sync`), web3/fastapi-dependent tests are skipped automatically
 ```
 
 ### 🍏 macOS Apple Silicon & Headless Runs Optimization

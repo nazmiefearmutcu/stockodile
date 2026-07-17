@@ -29,6 +29,8 @@ onchain = [
 web = [
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
+    # api_server imports web3 at module level, so the web extra pulls onchain too.
+    "stockodile[onchain]",
 ]
 full = [
     "stockodile[onchain,web]",
@@ -39,6 +41,7 @@ stockodile = "stockodile.cli:main"
 
 [dependency-groups]
 dev = [
+    "eth-account>=0.13",  # imported directly by tests/test_api_payment_security.py
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5",
