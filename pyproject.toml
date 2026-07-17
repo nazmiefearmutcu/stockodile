@@ -16,13 +16,22 @@ dependencies = [
     "rich>=13",
     "mmh3>=5.2.1",
     "yfinance>=1.4.1",
-    "web3>=6.0.0",
-    "fastapi>=0.100.0",
-    "uvicorn>=0.20.0",
     "prompt-toolkit>=3.0.52",
     "beautifulsoup4>=4.12",
     "python-dateutil>=2.9",
     "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+onchain = [
+    "web3>=6.0.0",
+]
+web = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+]
+full = [
+    "stockodile[onchain,web]",
 ]
 
 [project.scripts]

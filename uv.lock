@@ -2158,23 +2158,37 @@ wheels = [
 
 [[package]]
 name = "stockodile"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "beautifulsoup4" },
     { name = "duckdb" },
-    { name = "fastapi" },
     { name = "mmh3" },
     { name = "msgspec" },
+    { name = "numpy" },
     { name = "polars" },
     { name = "prompt-toolkit" },
     { name = "pyarrow" },
+    { name = "python-dateutil" },
     { name = "rich" },
     { name = "typer" },
-    { name = "uvicorn" },
-    { name = "web3" },
     { name = "websockets" },
     { name = "yfinance" },
+]
+
+[package.optional-dependencies]
+full = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+    { name = "web3" },
+]
+onchain = [
+    { name = "web3" },
+]
+web = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -2190,20 +2204,25 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
+    { name = "beautifulsoup4", specifier = ">=4.12" },
     { name = "duckdb", specifier = ">=1.0" },
-    { name = "fastapi", specifier = ">=0.100.0" },
+    { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.100.0" },
     { name = "mmh3", specifier = ">=5.2.1" },
     { name = "msgspec", specifier = ">=0.18" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "polars", specifier = ">=1.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pyarrow", specifier = ">=16" },
+    { name = "python-dateutil", specifier = ">=2.9" },
     { name = "rich", specifier = ">=13" },
+    { name = "stockodile", extras = ["onchain", "web"], marker = "extra == 'full'" },
     { name = "typer", specifier = ">=0.12" },
-    { name = "uvicorn", specifier = ">=0.20.0" },
-    { name = "web3", specifier = ">=6.0.0" },
+    { name = "uvicorn", marker = "extra == 'web'", specifier = ">=0.20.0" },
+    { name = "web3", marker = "extra == 'onchain'", specifier = ">=6.0.0" },
     { name = "websockets", specifier = ">=12" },
     { name = "yfinance", specifier = ">=1.4.1" },
 ]
+provides-extras = ["onchain", "web", "full"]
 
 [package.metadata.requires-dev]
 dev = [
