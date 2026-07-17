@@ -5,6 +5,8 @@ import subprocess
 import aiohttp
 import pytest
 
+pytest.importorskip("web3")
+
 
 @pytest.mark.asyncio
 async def test_mock_rpc_server_query(mock_rpc: tuple[str, int]) -> None:

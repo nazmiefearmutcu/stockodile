@@ -3,6 +3,8 @@ import asyncio
 import aiohttp
 import pytest
 
+pytest.importorskip("web3")
+
 
 @pytest.mark.asyncio
 async def test_cors_headers(api_server: str) -> None:
