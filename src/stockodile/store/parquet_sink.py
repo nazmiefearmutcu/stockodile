@@ -104,6 +104,14 @@ _CHANNEL_EXTRA: dict[str, dict[str, Any]] = {
         "prev_seq_id": pl.Int64,
         "is_snapshot": pl.Boolean,
     },
+    "depth": {
+        "bids": pl.List(_LEVEL_STRUCT),
+        "asks": pl.List(_LEVEL_STRUCT),
+        "reference_price": pl.Float64,
+        "basis": pl.Utf8,
+        "is_synthetic": pl.Boolean,
+        "depth": pl.Int64,
+    },
     "bar": {
         "interval": pl.Utf8,
         "open": pl.Float64,
@@ -513,7 +521,7 @@ class ParquetSink(Sink):
         out_path = part_dir / f"part-{part_id}.parquet"
 
         # Coerce book levels (list-of-tuples → list-of-dicts)
-        if channel in ("book_snapshot", "book_delta"):
+        if channel in ("book_snapshot", "book_delta", "depth"):
             _coerce_levels(rows, "bids")
             _coerce_levels(rows, "asks")
 

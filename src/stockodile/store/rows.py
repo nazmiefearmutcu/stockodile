@@ -34,6 +34,7 @@ from stockodile.schema.records import (
     BookDelta,
     BookSnapshot,
     CorporateAction,
+    DepthProfile,
     Filing,
     Fundamental,
     Holding13F,
@@ -194,6 +195,20 @@ def from_row(row: dict[str, Any]) -> Record:
             seq_id=d.get("seq_id"),
             prev_seq_id=d.get("prev_seq_id"),
             is_snapshot=bool(d["is_snapshot"]) if d.get("is_snapshot") is not None else False,
+        )
+    if channel == "depth":
+        return DepthProfile(
+            provider=d["provider"],
+            symbol=d["symbol"],
+            symbol_raw=d["symbol_raw"],
+            local_ts=int(d["local_ts"]),
+            bids=_coerce_levels_from_row(d.get("bids", [])),
+            asks=_coerce_levels_from_row(d.get("asks", [])),
+            reference_price=float(d["reference_price"]),
+            basis=d["basis"],
+            is_synthetic=bool(d["is_synthetic"]),
+            depth=int(d["depth"]),
+            source_ts=(int(d["source_ts"]) if d.get("source_ts") is not None else None),
         )
     if channel == "corp_action":
         return CorporateAction(
