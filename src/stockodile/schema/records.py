@@ -82,6 +82,20 @@ class BookDelta(msgspec.Struct, frozen=True, tag="book_delta", tag_field="channe
     is_snapshot: bool = False
 
 
+class DepthProfile(msgspec.Struct, frozen=True, tag="depth", tag_field="channel"):
+    provider: str
+    symbol: str
+    symbol_raw: str
+    local_ts: int
+    bids: list[Level]
+    asks: list[Level]
+    reference_price: float
+    basis: str
+    is_synthetic: bool
+    depth: int
+    source_ts: int | None = None
+
+
 class Auction(msgspec.Struct, frozen=True, tag="auction", tag_field="channel"):
     provider: str
     symbol: str
@@ -404,6 +418,7 @@ Record = (
     | Quote
     | BookSnapshot
     | BookDelta
+    | DepthProfile
     | Bar
     | Auction
     | TradingStatus
