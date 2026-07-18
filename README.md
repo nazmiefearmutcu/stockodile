@@ -45,6 +45,8 @@ No free source offers true US-equity L2 resting liquidity, so Stockodile synthes
 * **Transparent L1 Upgrade**: Set `ALPACA_API_KEY` + `ALPACA_API_SECRET` and the same `depth` command/endpoint automatically upgrades to **real Alpaca L1** top-of-book (`alpaca_l1`, `is_synthetic=false`) via Alpaca's official REST latest-quote API — **no code changes**.
 * **Legal by construction**: public Yahoo JSON + official Alpaca API with your own keys. No CAPTCHA solving, Proof-of-Work bypass, or cookie spoofing. Persists to a queryable `depth` channel in the Parquet/DuckDB lake.
 
+> Landscape, honest novelty assessment, and a reproducible head-to-head benchmark vs. the nearest competitor (OpenBB): [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
 ---
 
 ## 📁 Package Layout
