@@ -9,6 +9,7 @@ replay     -- Stream canonical Records from the data lake, printed to stdout.
 collect    -- Run live connectors and write data to the Parquet lake.
 resample   -- Resample trade records to OHLCV bars.
 indicators -- Calculate technical analysis indicators on OHLCV bars.
+depth      -- Show a market-depth ladder (synthetic VAP or real Alpaca L1).
 shell      -- Start an interactive Stockodile shell.
 """
 
@@ -1693,6 +1694,61 @@ def indicators(
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1) from e
+
+
+# ---------------------------------------------------------------------------
+# depth
+# ---------------------------------------------------------------------------
+@app.command()
+def depth(
+    symbol: Annotated[str, typer.Argument(help="Ticker, e.g. AAPL.")],
+    method: Annotated[
+        str, typer.Option("--method", help="VAP method: uniform|typical|close.")
+    ] = "uniform",
+    bins: Annotated[int, typer.Option("--bins", help="Number of price buckets.")] = 40,
+    top_n: Annotated[int, typer.Option("--top-n", help="Levels per side.")] = 10,
+    persist: Annotated[
+        bool, typer.Option("--persist/--no-persist", help="Write to the lake.")
+    ] = False,
+    data_dir: _DataDirOpt = Path("data"),
+) -> None:
+    """Show a market-depth ladder. Keyless -> synthetic volume-at-price from Yahoo 1m bars;
+    upgrades to real Alpaca L1 automatically when ALPACA_API_KEY/ALPACA_API_SECRET are set."""
+    import asyncio
+
+    from stockodile.depth import select_depth_source
+
+    data_dir = resolve_data_dir(data_dir)
+    try:
+        source = select_depth_source(bins=bins, top_n=top_n, method=method)
+        profile = asyncio.run(source.snapshot(symbol))
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    if profile.is_synthetic:
+        typer.echo("=" * 64)
+        typer.echo("  ⚠️  SYNTHETIC DEPTH — relative volume-at-price (Yahoo 1m bars).")
+        typer.echo("      NOT real resting liquidity. Set ALPACA_API_KEY/SECRET for real L1.")
+        typer.echo("=" * 64)
+    typer.echo(f"{profile.symbol}  basis={profile.basis}  ref={profile.reference_price:.4f}")
+    typer.echo(f"{'ASK price':>14} {'size':>16}")
+    for px, sz in reversed(profile.asks):
+        typer.echo(f"{px:>14.4f} {sz:>16.2f}")
+    typer.echo(f"{'-- ref --':>14} {profile.reference_price:>16.4f}")
+    for px, sz in profile.bids:
+        typer.echo(f"{px:>14.4f} {sz:>16.2f}  (BID)")
+
+    if persist:
+        from stockodile.store.parquet_sink import ParquetSink
+
+        async def _write() -> None:
+            sink = ParquetSink(data_dir=data_dir, max_buffer_rows=1, flush_interval_seconds=0.1)
+            await sink.put(profile)
+            await sink.close()
+
+        asyncio.run(_write())
+        typer.echo(f"Persisted to depth channel under: {data_dir}")
 
 
 # ---------------------------------------------------------------------------
