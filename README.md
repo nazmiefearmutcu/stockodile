@@ -39,6 +39,12 @@ Additionally, Stockodile features **aggressive evasion utilities** (proxy rotati
 * **Options Analytics**: Computes continuous-dividend Black-Scholes-Merton pricing, Greeks (Delta, Gamma, Vega, Theta, Rho), and fits Implied Volatility using a hybrid Newton-Raphson/Bisection solver.
 * **OHLCV & Book Resampler**: Resamples trades, quotes, and L2 streams into higher resolution bars (1s, 1m, 1h, 1d) or book snapshot depths.
 
+### 6. Synthetic Market Depth ($0, Legal)
+No free source offers true US-equity L2 resting liquidity, so Stockodile synthesizes a **market-depth ladder** at zero cost via legal channels only:
+* **Volume-at-Price Synthesis**: Builds a relative depth profile from **free Yahoo 1-minute bars** (`yahoo_1m_vap`) — accumulating traded volume into price buckets, split into bid/ask sides around the last price. It is *relative* liquidity (where volume historically concentrated), **not** real resting orders, and is loudly labeled as synthetic wherever it surfaces.
+* **Transparent L1 Upgrade**: Set `ALPACA_API_KEY` + `ALPACA_API_SECRET` and the same `depth` command/endpoint automatically upgrades to **real Alpaca L1** top-of-book (`alpaca_l1`, `is_synthetic=false`) via Alpaca's official REST latest-quote API — **no code changes**.
+* **Legal by construction**: public Yahoo JSON + official Alpaca API with your own keys. No CAPTCHA solving, Proof-of-Work bypass, or cookie spoofing. Persists to a queryable `depth` channel in the Parquet/DuckDB lake.
+
 ---
 
 ## 📁 Package Layout
@@ -96,6 +102,11 @@ uv run stockodile resample --symbol alpaca:AAPL --interval 5m
 
 # Calculate technical indicators on resampled OHLCV bars
 uv run stockodile indicators --symbol alpaca:AAPL --indicator sma --period 14 --interval 1d
+
+# Synthetic market depth ($0, keyless) — volume-at-price ladder from Yahoo 1m bars.
+# Persists to the queryable `depth` channel. Set ALPACA_API_KEY/SECRET to upgrade to real L1.
+uv run stockodile depth AAPL --persist
+uv run stockodile query "SELECT symbol, basis, is_synthetic, reference_price, depth FROM depth"
 ```
 
 ---
