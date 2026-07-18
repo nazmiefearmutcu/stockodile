@@ -491,7 +491,7 @@ TOOLS = [
         "description": (
             "Execute a DuckDB SQL query against the Stockodile parquet data lake. "
             "Replayed tables: trade, book_snapshot, book_ticker, ohlcv, "
-            "funding, basis."
+            "funding, basis, depth."
         ),
         "inputSchema": {
             "type": "object",
@@ -518,6 +518,37 @@ TOOLS = [
                 "end": {"type": "integer", "description": "End timestamp in nanoseconds UTC"},
             },
             "required": ["symbol", "start", "end"],
+        },
+    },
+    {
+        "name": "depth",
+        "description": (
+            "US-equity market-depth ladder. Keyless returns synthetic "
+            "volume-at-price from Yahoo 1m bars; set ALPACA_API_KEY/"
+            "ALPACA_API_SECRET to upgrade to real Alpaca L1 (no code change). "
+            "Synthetic responses carry a 'warning' key."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "US-equity ticker (e.g. 'AAPL').",
+                },
+                "method": {
+                    "type": "string",
+                    "description": "Synthetic binning method (default 'uniform').",
+                },
+                "bins": {
+                    "type": "integer",
+                    "description": "Number of price bins (default 40).",
+                },
+                "top_n": {
+                    "type": "integer",
+                    "description": "Levels per side to return (default 10).",
+                },
+            },
+            "required": ["symbol"],
         },
     },
 ]
@@ -627,6 +658,33 @@ async def serve_stdio(data_dir: Path = Path("data")) -> None:
                         )
                     except Exception as e:
                         tool_result = {"error": f"Funding APR analysis failed: {e}"}
+                elif tool_name == "depth":
+                    sym = arguments.get("symbol", "")
+                    method = arguments.get("method", "uniform")
+                    bins = arguments.get("bins", 40)
+                    top_n = arguments.get("top_n", 10)
+                    try:
+                        from stockodile.depth import select_depth_source
+
+                        source = select_depth_source(bins=bins, top_n=top_n, method=method)
+                        profile = await source.snapshot(sym)
+                        depth_result: dict[str, Any] = {
+                            "symbol": profile.symbol,
+                            "basis": profile.basis,
+                            "is_synthetic": profile.is_synthetic,
+                            "reference_price": profile.reference_price,
+                            "bids": [list(lv) for lv in profile.bids],
+                            "asks": [list(lv) for lv in profile.asks],
+                            "depth": profile.depth,
+                        }
+                        if profile.is_synthetic:
+                            depth_result["warning"] = (
+                                "SYNTHETIC — relative volume-at-price from Yahoo 1m bars, "
+                                "not real resting liquidity."
+                            )
+                        tool_result = depth_result
+                    except Exception as e:
+                        tool_result = {"error": f"Depth snapshot failed: {e}"}
                 else:
                     tool_result = {"error": f"Tool {tool_name} not found"}
 

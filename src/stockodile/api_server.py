@@ -1241,6 +1241,50 @@ async def get_market_data(
     return {"status": "success", "payment_id": pid, "tx_hash": tx_hash, "data": data}
 
 
+@app.get("/api/v1/depth/{symbol}")
+async def get_depth(
+    symbol: str,
+    request: Request,
+    method: str = "uniform",
+    bins: int = 40,
+    top_n: int = 10,
+) -> dict[str, Any]:
+    """US-equity market-depth ladder (ungated free read).
+
+    Keyless returns synthetic volume-at-price built from Yahoo 1m bars; setting
+    ALPACA_API_KEY/ALPACA_API_SECRET upgrades to real Alpaca L1 with no code change.
+    """
+    client_ip = _client_ip(request)
+    if rate_limiter.check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="Too Many Requests")
+
+    from stockodile.depth import select_depth_source
+
+    try:
+        source = select_depth_source(bins=bins, top_n=top_n, method=method)
+        profile = await source.snapshot(symbol)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    result: dict[str, Any] = {
+        "symbol": profile.symbol,
+        "basis": profile.basis,
+        "is_synthetic": profile.is_synthetic,
+        "reference_price": profile.reference_price,
+        "bids": [list(lv) for lv in profile.bids],
+        "asks": [list(lv) for lv in profile.asks],
+        "depth": profile.depth,
+    }
+    if profile.is_synthetic:
+        result["warning"] = (
+            "SYNTHETIC — relative volume-at-price from Yahoo 1m bars, "
+            "not real resting liquidity."
+        )
+    return result
+
+
 @app.post("/api/v1/simulate-payment")
 async def simulate_payment(payload: PaymentSignature, request: Request) -> dict[str, Any]:
     """Helper endpoint to mark a payment_id as paid and generate a mock signature.
